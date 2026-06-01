@@ -12,7 +12,7 @@ const { CFG, PALETTE, LocalAdapter } = sim;
 
 // Bump this by hand whenever you change the server. Lets you confirm at a glance
 // (in the boot logs AND at /health) that Render is running your latest push.
-const SERVER_VERSION = 'v7 — 30Hz, fixed interpolation';
+const SERVER_VERSION = 'v8 — 30Hz sim (stable on Free)';
 const BOOT_TIME = new Date().toISOString();
 
 const PORT = process.env.PORT || 8080;
@@ -55,8 +55,8 @@ function makeCode(){
   return c;
 }
 
-const SIM_DT = 1000/60;          // 60 simulation steps per second
-const SNAP_EVERY = 2;            // publish a snapshot every 2 steps -> 30/sec (smooth via interpolation)
+const SIM_DT = 1000/30;          // 30 simulation steps per second (sustainable on Free 0.1 CPU)
+const SNAP_EVERY = 1;            // publish a snapshot every step -> 30/sec
 
 class Room {
   constructor(code){
@@ -203,6 +203,7 @@ class Room {
     const pl = this.adapter.players.find(p=>p.id===id);
     if (pl){
       pl._netInput = input;             // sim consumes this for remote players
+      pl._netInputFrame = this.adapter.frame;  // stamp arrival frame (for stale-input TTL)
       if (typeof input.seq === 'number') pl._ackSeq = input.seq;  // last input we'll apply
     }
   }

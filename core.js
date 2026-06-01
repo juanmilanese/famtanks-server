@@ -4,31 +4,39 @@
 //  later implements the same interface and game logic never changes.
 // ============================================================================
 
+// === SIMULATION RATE ===
+// The server simulates at 30 Hz (Render Free = 0.1 CPU can't sustain 60 Hz; the
+// catch-up loop caused multi-step bursts -> double shots, stutter, freezes).
+// All per-step distances are doubled and all frame-based durations are halved so
+// the game plays at the SAME real-world speed/timing it did at 60 Hz. Clients
+// still render at 60 fps via interpolation, so motion stays smooth.
+const SIM_HZ = 30;
 const CFG = {
   arenaW: 760, arenaH: 560, tile: 40,
-  baseSpeed: 3.5,          // <-- normal top speed (tune here)
-  speedMult: 1.357,        // <-- SPEED power-up = baseSpeed(3.5) * this = 4.75 top speed
-  baseAccel: 0.6, baseFric: 0.74,
-  tank: { radius: 14, accel: 0.6, maxSpd: 3.5, friction: 0.74 }, // maxSpd mirrors baseSpeed
+  baseSpeed: 7.0,          // 3.5 px/step @60 -> 7.0 px/step @30 (same px/sec)
+  speedMult: 1.357,        // multiplier, rate-independent
+  baseAccel: 1.2, baseFric: 0.74,
+  tank: { radius: 14, accel: 1.2, maxSpd: 7.0, friction: 0.74 }, // maxSpd mirrors baseSpeed
   bot: {
-    accel: 0.6, maxSpd: 3.5, friction: 0.74,  // SAME physics as human (fairness); only the brain differs
+    accel: 1.2, maxSpd: 7.0, friction: 0.74,  // SAME physics as human (fairness); only the brain differs
     aimError: 0.15, reactRange: 1000,
-    fireCooldown: 44, avoidLookahead: 28,
+    fireCooldown: 22, avoidLookahead: 28,      // 44 frames @60 -> 22 @30
   },
-  bullet: { radius: 4, speed: 6.0, life: 110, dmg: 1 },
-  breacherBullet: { radius: 9, speed: 5.0, life: 150 }, // slower than normal (6.0) but beats a SPEED tank (4.75)
+  bullet: { radius: 4, speed: 12.0, life: 55, dmg: 1 },     // speed x2, life /2
+  breacherBullet: { radius: 9, speed: 10.0, life: 75 },     // speed x2, life /2
   rapidSpread: 0.087,      // ~5 degrees cone for rapid auto-fire
-  fireCooldown: 36, startLives: 3, respawnInvuln: 80,   // midpoint cooldown (between 24 and 48)
-  // per-power-up durations (frames @60fps): rapid 5s, breacher 6s, speed 7s, shield 8s, tiny 7s
-  dur: { rapid:300, breacher:360, speed:420, shield:480, tiny:420 },
+  fireCooldown: 18, startLives: 3, respawnInvuln: 40,       // 36->18, 80->40 frames
+  netInputTTL: 30,         // remote input is reused for up to ~1s (30 frames @30Hz) if no fresh packet
+  // per-power-up durations (frames @30fps): rapid 5s, breacher 6s, speed 7s, shield 8s, tiny 7s
+  dur: { rapid:150, breacher:180, speed:210, shield:240, tiny:210 },  // all /2
   maxActivePowerups: 3,    // only 3 timed power-ups active at once; 4th drops the oldest
   matchSeconds: 60, brickHP: 2,
   beaconSeconds: 9,        // countdown per beacon (9->0 = 10s)
   pickup: { max: 4 },      // one item per beacon
   itemWeights: { steel:1, rapid:1, speed:1, breacher:1, hull:0.5, tiny:1 }, // hull rarer (boring)
   spawnBlast: { radius: 58, dmg: 1 }, // anti-spawncamp explosion on respawn / item destruction
-  startShield: 120,        // 2s shield on spawn (start AND respawn)
-  respawnDelay: 120,       // 2s before a killed tank respawns (death hurts -> more 1v1 duels)
+  startShield: 60,         // 2s shield on spawn @30 (was 120 @60)
+  respawnDelay: 60,        // 2s before a killed tank respawns @30 (was 120 @60)
   tinyScale: 0.5,          // TinyTank: half size / half collision
 };
 
@@ -329,13 +337,13 @@ class LocalAdapter {
       breach,                       // breacher: one-hit-kill + breaks metal
       breaksBrick: rapid || breach, // rapid also smashes brick (the "downside")
       radius:bdef.radius });
-    // cooldown by combo: normal=base(36), breacher=48 (slower), rapid=12 (gatling),
-    // rapid+breacher=24 (penalized — the nuclear combo fires slower than plain gatling)
+    // cooldown by combo @30Hz (halved from the 60Hz values): normal=18, breacher=24,
+    // rapid=6 (gatling), rapid+breacher=12 (penalized vs plain gatling).
     let cd;
-    if(rapid && breach) cd = 24;
-    else if(rapid)      cd = 12;
-    else if(breach)     cd = 48;
-    else                cd = CFG.fireCooldown;  // 36
+    if(rapid && breach) cd = 12;
+    else if(rapid)      cd = 6;
+    else if(breach)     cd = 24;
+    else                cd = CFG.fireCooldown;  // 18
     p.cooldown = cd;
     this.events.push({t:'shot',x:p.x+Math.cos(a)*18,y:p.y+Math.sin(a)*18,ang:a,breach});
   }
@@ -624,7 +632,7 @@ class LocalAdapter {
     // ---- START COUNTDOWN GATE: 3..2..1..GO! before anything is live ----
     if(!this.live){
       this._startAcc++;
-      if(this._startAcc>=50){ // ~0.83s per number
+      if(this._startAcc>=25){ // ~0.83s per number @30Hz
         this._startAcc=0;
         this.startCountdown--;
         if(this.startCountdown>0){ this.events.push({t:'countbeep',n:this.startCountdown}); }
@@ -638,21 +646,29 @@ class LocalAdapter {
 
     // timer (assume ~60fps)
     this._tickAcc++;
-    if(this._tickAcc>=60){ this._tickAcc=0; this.timeLeft--; if(this.timeLeft<=0){ this._endByTime(); } }
+    if(this._tickAcc>=SIM_HZ){ this._tickAcc=0; this.timeLeft--; if(this.timeLeft<=0){ this._endByTime(); } }
 
     const me=this.localId? this.players.find(p=>p.id===this.localId):null;
     if(me && me.kind==='human' && me.alive){
       me.aimX=this.input.aimX; me.aimY=this.input.aimY;
       this._move(me,this.input.mx,this.input.my,CFG.tank.maxSpd,CFG.tank.friction);
-      if(this.input.shoot) this._fire(me);
+      if(this.input.shoot) this._fire(me);   // _fire respects cooldown -> held = auto-fire
     }
-    // REMOTE humans (multiplayer host): drive each from its latest network input
+    // REMOTE humans: drive each from its latest network input. Hold-to-fire works
+    // because _fire is gated by cooldown. The input is stamped with the sim frame it
+    // arrived; if no fresh input comes for a while we stop reusing a stale one (so a
+    // dropped "released" packet can't keep the tank moving/shooting forever).
     for(const p of this.players){
       if(p.kind==='remote' && p.alive && p._netInput){
         const ni=p._netInput;
+        const fresh = (p._netInputFrame!=null) && (this.frame - p._netInputFrame) <= CFG.netInputTTL;
         p.aimX=ni.aimX; p.aimY=ni.aimY;
-        this._move(p,ni.mx,ni.my,CFG.tank.maxSpd,CFG.tank.friction);
-        if(ni.shoot) this._fire(p);
+        if(fresh){
+          this._move(p,ni.mx,ni.my,CFG.tank.maxSpd,CFG.tank.friction);
+          if(ni.shoot) this._fire(p);
+        } else {
+          this._move(p,0,0,CFG.tank.maxSpd,CFG.tank.friction);  // stale input -> coast to stop, no fire
+        }
       }
     }
     for(const p of this.players){
@@ -682,7 +698,7 @@ class LocalAdapter {
 
     // BEACONS: tick once per second
     this._beaconAcc++;
-    if(this._beaconAcc>=60){ this._beaconAcc=0; this._beaconTick(); }
+    if(this._beaconAcc>=SIM_HZ){ this._beaconAcc=0; this._beaconTick(); }
 
     // pickups: timed power-ups (rapid/breacher/speed/shield/tiny) + instant HULL heal.
     // Max 3 TIMED active at once; grabbing a 4th drops the oldest (FIFO).
