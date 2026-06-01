@@ -1065,7 +1065,7 @@ const SERVER_URL = (location.protocol === 'https:' || location.protocol === 'htt
 // Bump by hand when the client changes. Shown on the welcome screen so a tester
 // can read it off and we know which build they're running. The server reports its
 // own version separately (in snapshots as `sv`), so the welcome can show both.
-const CLIENT_VERSION = 'v9';
+const CLIENT_VERSION = 'v9.1';
 
 // ---- the single shared socket + a tiny message router -------------------
 let _ws = null;
@@ -1143,7 +1143,7 @@ const NetDiag = {
   draw(ctx){
     if(!this.on) return;
     const lines=[
-      'NET DIAG  (press \\ to hide)',
+      'NET DIAG  (press F2 to hide)',
       'ping (RTT): '+this.rtt+' ms',
       'snapshots/s: '+this.rate+'  (server sends 30)',
       'worst gap: '+this.worstGap+' ms  (ideal ~33)',
@@ -1160,7 +1160,8 @@ const NetDiag = {
     ctx.restore();
   }
 };
-window.addEventListener('keydown',e=>{ if(e.key==='\\'){ NetDiag.toggle(); } });
+window.addEventListener('keydown',e=>{ if(e.key==='F2'){ e.preventDefault(); NetDiag.toggle(); } });
+window.netdiag = ()=>NetDiag.toggle();   // fallback: type netdiag() in the console (F12)
 
 // ============================================================================
 //  WSNet — server-authoritative mirror. Same interface for host AND joiners.
