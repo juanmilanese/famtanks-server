@@ -1065,7 +1065,7 @@ const SERVER_URL = (location.protocol === 'https:' || location.protocol === 'htt
 // Bump by hand when the client changes. Shown on the welcome screen so a tester
 // can read it off and we know which build they're running. The server reports its
 // own version separately (in snapshots as `sv`), so the welcome can show both.
-const CLIENT_VERSION = 'v9.1';
+const CLIENT_VERSION = 'v10';
 
 // ---- the single shared socket + a tiny message router -------------------
 let _ws = null;
@@ -1187,15 +1187,40 @@ class WSNet {
     this._pending = [];              // [{seq, input}] inputs not yet acked by server
     this._lastInput = {mx:0,my:0,aimX:1,aimY:0,shoot:false};
     this._serverMe = null;           // latest authoritative state of my tank
-    // ---- interpolation (server-clock based) ----
-    this.INTERP_DELAY = 100;         // render ~100ms in the past (robust default)
+    // ---- interpolation (adaptive delay to absorb network jitter) ----
+    // We render slightly in the past so there are always 2 snapshots to blend.
+    // The delay ADAPTS to the worst recent gap between snapshot arrivals: on a
+    // clean line it stays low (~80ms); on a bursty line (big gaps) it grows so a
+    // late batch doesn't starve the interpolator and cause a visible jump.
+    this.INTERP_DELAY = 120;         // current delay, ms (adaptive, see _onSnap)
+    this.MIN_DELAY = 80;
+    this.MAX_DELAY = 350;
+    this._gaps = [];                 // recent inter-arrival gaps (ms)
   }
 
   // ---------- receive ----------
   _onSnap(v){
-    v._rt = performance.now();       // local arrival time, used for interpolation
+    const now = performance.now();
+    v._rt = now;
+    // track inter-arrival jitter
+    if(this._lastArrival){
+      const gap = now - this._lastArrival;
+      this._gaps.push(gap);
+      if(this._gaps.length > 40) this._gaps.shift();
+      // target delay = a bit more than the worst recent gap, clamped. Ease toward
+      // it (don't snap) so the delay itself doesn't cause a visible time jump.
+      const worst = Math.max.apply(null, this._gaps);
+      const target = Math.max(this.MIN_DELAY, Math.min(this.MAX_DELAY, worst*1.3));
+      this.INTERP_DELAY += (target - this.INTERP_DELAY) * 0.1;
+    }
+    this._lastArrival = now;
     this._buf.push(v);
-    if (this._buf.length > 16) this._buf.shift();
+    // keep only what's needed for interpolation: anything older than the render
+    // window (delay + a margin) is useless. Drop by TIME, not by a fixed count,
+    // so a burst of late packets can't leave us rendering half-second-old state.
+    const cutoff = now - (this.INTERP_DELAY + 200);
+    while(this._buf.length > 2 && this._buf[0]._rt < cutoff) this._buf.shift();
+    if(this._buf.length > 40) this._buf.shift();   // hard safety cap
     this._ingest(v);
   }
   _ingest(v){
