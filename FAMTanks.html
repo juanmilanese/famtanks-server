@@ -1065,7 +1065,7 @@ const SERVER_URL = (location.protocol === 'https:' || location.protocol === 'htt
 // Bump by hand when the client changes. Shown on the welcome screen so a tester
 // can read it off and we know which build they're running. The server reports its
 // own version separately (in snapshots as `sv`), so the welcome can show both.
-const CLIENT_VERSION = 'v8';
+const CLIENT_VERSION = 'v9';
 
 // ---- the single shared socket + a tiny message router -------------------
 let _ws = null;
@@ -1097,7 +1097,8 @@ function wsConnect(onReady, onFail){
   _ws.onmessage = (ev)=>{
     let m; try { m = JSON.parse(ev.data); } catch(e){ return; }
     // snapshots go straight to the active WSNet instance (hot path)
-    if (m.type === 'snap'){ if (net && net._ingest) net._onSnap(m); return; }
+    if (m.type === 'snap'){ NetDiag.onSnap(); if (net && net._ingest) net._onSnap(m); return; }
+    if (m.type === 'pong'){ NetDiag.onPong(m.t); return; }
     const h = _wsHandlers[m.type];
     if (h) h(m);
   };
@@ -1111,6 +1112,55 @@ function wsClose(){
   try { if (_ws) _ws.close(); } catch(e){}
   _ws = null; _wsOpen = false; _wsQueue.length = 0;
 }
+
+// ============================================================================
+//  NetDiag — live network diagnostics (toggle with the `\` key in-game).
+//  Measures RTT (ping/pong), real snapshot rate, and worst gap between snaps.
+// ============================================================================
+const NetDiag = {
+  on:false, rtt:0, _snapTimes:[], _lastSnap:0, worstGap:0, rate:0,
+  start(){
+    if(this._pingTimer) return;
+    this._pingTimer = setInterval(()=>{
+      if(_wsOpen && _ws && _ws.readyState===1){ wsSend({type:'ping', t:performance.now()}); }
+    }, 1000);
+  },
+  onPong(t){ if(typeof t==='number'){ this.rtt = Math.round(performance.now()-t); } },
+  onSnap(){
+    const now=performance.now();
+    if(this._lastSnap){
+      const gap=now-this._lastSnap;
+      this._snapTimes.push(gap);
+      if(this._snapTimes.length>60) this._snapTimes.shift();
+      // rolling worst gap over the recent window
+      this.worstGap=Math.round(Math.max(...this._snapTimes));
+      const avg=this._snapTimes.reduce((a,b)=>a+b,0)/this._snapTimes.length;
+      this.rate=avg>0?Math.round(1000/avg):0;
+    }
+    this._lastSnap=now;
+  },
+  toggle(){ this.on=!this.on; if(this.on) this.start(); },
+  draw(ctx){
+    if(!this.on) return;
+    const lines=[
+      'NET DIAG  (press \\ to hide)',
+      'ping (RTT): '+this.rtt+' ms',
+      'snapshots/s: '+this.rate+'  (server sends 30)',
+      'worst gap: '+this.worstGap+' ms  (ideal ~33)',
+      'buffer: '+(net&&net._buf?net._buf.length:0)+' snaps',
+      'pending inputs: '+(net&&net._pending?net._pending.length:0),
+    ];
+    ctx.save();
+    ctx.font='12px Chakra Petch, monospace';
+    const w=230, h=lines.length*16+12;
+    ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(8,8,w,h);
+    ctx.strokeStyle='rgba(111,220,90,0.7)'; ctx.lineWidth=1; ctx.strokeRect(8,8,w,h);
+    ctx.fillStyle='#6fdc5a'; ctx.textBaseline='top';
+    lines.forEach((ln,i)=>{ ctx.fillStyle = i===0?'#6fdc5a':'#cfe'; ctx.fillText(ln,16,14+i*16); });
+    ctx.restore();
+  }
+};
+window.addEventListener('keydown',e=>{ if(e.key==='\\'){ NetDiag.toggle(); } });
 
 // ============================================================================
 //  WSNet — server-authoritative mirror. Same interface for host AND joiners.
@@ -1749,6 +1799,7 @@ function clientLoop(){
     drawParticles();drawFloaters();drawLocatorRing();drawStartCountdown(); }
   ctx.restore();
   updateHUD();
+  NetDiag.draw(ctx);
   if(!net._running){ running=false; showResults(); return; }
   requestAnimationFrame(clientLoop);
 }

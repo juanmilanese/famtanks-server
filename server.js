@@ -12,7 +12,7 @@ const { CFG, PALETTE, LocalAdapter } = sim;
 
 // Bump this by hand whenever you change the server. Lets you confirm at a glance
 // (in the boot logs AND at /health) that Render is running your latest push.
-const SERVER_VERSION = 'v8 — 30Hz sim (stable on Free)';
+const SERVER_VERSION = 'v9 — 30Hz + net diag (ping)';
 const BOOT_TIME = new Date().toISOString();
 
 const PORT = process.env.PORT || 8080;
@@ -252,6 +252,11 @@ wss.on('connection', (ws) => {
       case 'input': {
         const room = rooms.get(ws.room);
         if (room) room.applyInput(ws, m.input);
+        break;
+      }
+      case 'ping': {
+        // echo straight back so the client can measure round-trip time
+        if (ws.readyState===1) ws.send(JSON.stringify({ type:'pong', t:m.t }));
         break;
       }
       case 'leave': {
