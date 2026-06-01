@@ -143,14 +143,15 @@ class Room {
   publish(){
     const s = this.adapter;
     const snap = {
-      type:'snap',
+      type:'snap', st:Date.now(),
       live:s.live, timeLeft:s.timeLeft, running:s._running, startCountdown:s.startCountdown,
       players: s.players.map(p=>({ id:p.id, n:p.name, c:p.color, ci:p.colorId, k:p.kills,
         x:Math.round(p.x), y:Math.round(p.y), vx:+p.vx.toFixed(2), vy:+p.vy.toFixed(2),
         ba:+p.bodyAng.toFixed(2), ax:+p.aimX.toFixed(2), ay:+p.aimY.toFixed(2),
         sx:Math.round(p.spawnX), sy:Math.round(p.spawnY),
         lv:p.lives, al:p.alive?1:0, iv:p.invuln,
-        sh:p.shield, rf:p.rapidFire, sp:p.speedster, br:p.breacher, ty:p.tiny, hf:p.hitFlash, da:+(p.deathAng||0).toFixed(2) })),
+        sh:p.shield, rf:p.rapidFire, sp:p.speedster, br:p.breacher, ty:p.tiny, hf:p.hitFlash, da:+(p.deathAng||0).toFixed(2),
+        as:(p._ackSeq||0) })),
       bullets: s.bullets.map(b=>({ x:Math.round(b.x), y:Math.round(b.y), vx:+b.vx.toFixed(2), vy:+b.vy.toFixed(2), c:b.color, br:b.breach?1:0, r:b.radius||3 })),
       pickups: s.pickups.map(k=>({ x:Math.round(k.x), y:Math.round(k.y), tp:k.type, sq:k._seq, bob:+(k.bob||0).toFixed(2) })),
       beacons: s.beacons.map(b=>({ i:b.idx, x:Math.round(b.x), y:Math.round(b.y), ct:b.count, st:b.state })),
@@ -176,7 +177,10 @@ class Room {
     const id = this.wsToId && this.wsToId.get(ws);
     if (!id) return;
     const pl = this.adapter.players.find(p=>p.id===id);
-    if (pl) pl._netInput = input;   // sim consumes this for remote players
+    if (pl){
+      pl._netInput = input;             // sim consumes this for remote players
+      if (typeof input.seq === 'number') pl._ackSeq = input.seq;  // last input we'll apply
+    }
   }
 }
 
