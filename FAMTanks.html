@@ -1065,7 +1065,7 @@ const SERVER_URL = (location.protocol === 'https:' || location.protocol === 'htt
 // Bump by hand when the client changes. Shown on the welcome screen so a tester
 // can read it off and we know which build they're running. The server reports its
 // own version separately (in snapshots as `sv`), so the welcome can show both.
-const CLIENT_VERSION = 'v10';
+const CLIENT_VERSION = 'v13';
 
 // ---- the single shared socket + a tiny message router -------------------
 let _ws = null;
@@ -1092,13 +1092,14 @@ function wsConnect(onReady, onFail){
   _ws.onopen = ()=>{
     _wsOpen = true;
     while (_wsQueue.length) _ws.send(_wsQueue.shift());
+    NetStats.startPing();          // always-on RTT measurement (drives interp delay)
     onReady && onReady();
   };
   _ws.onmessage = (ev)=>{
     let m; try { m = JSON.parse(ev.data); } catch(e){ return; }
     // snapshots go straight to the active WSNet instance (hot path)
-    if (m.type === 'snap'){ NetDiag.onSnap(); if (net && net._ingest) net._onSnap(m); return; }
-    if (m.type === 'pong'){ NetDiag.onPong(m.t); return; }
+    if (m.type === 'snap'){ NetStats.onSnap(); if (net && net._ingest) net._onSnap(m); return; }
+    if (m.type === 'pong'){ NetStats.onPong(m.t); return; }
     const h = _wsHandlers[m.type];
     if (h) h(m);
   };
@@ -1109,44 +1110,69 @@ function wsConnect(onReady, onFail){
   _ws.onerror = ()=>{ const h = _wsHandlers['__error']; if (h) h(); };
 }
 function wsClose(){
+  NetStats.stopPing();
   try { if (_ws) _ws.close(); } catch(e){}
   _ws = null; _wsOpen = false; _wsQueue.length = 0;
 }
 
 // ============================================================================
-//  NetDiag — live network diagnostics (toggle with the `\` key in-game).
-//  Measures RTT (ping/pong), real snapshot rate, and worst gap between snaps.
+//  NetStats — always-on network measurement. Runs whenever a socket is live,
+//  independent of the debug overlay. Provides RTT (ping/pong) and snapshot
+//  inter-arrival jitter, which the interpolation delay is derived from.
 // ============================================================================
-const NetDiag = {
-  on:false, rtt:0, _snapTimes:[], _lastSnap:0, worstGap:0, rate:0,
-  start(){
+const NetStats = {
+  rtt: 100,                 // smoothed round-trip time, ms (starts at a sane guess)
+  rttSamples: 0,
+  _snapTimes: [], _lastSnap: 0, worstGap: 0, rate: 0, jitter: 16,
+  startPing(){
     if(this._pingTimer) return;
     this._pingTimer = setInterval(()=>{
       if(_wsOpen && _ws && _ws.readyState===1){ wsSend({type:'ping', t:performance.now()}); }
     }, 1000);
+    // fire one immediately so we get an RTT fast
+    if(_wsOpen && _ws && _ws.readyState===1) wsSend({type:'ping', t:performance.now()});
   },
-  onPong(t){ if(typeof t==='number'){ this.rtt = Math.round(performance.now()-t); } },
+  stopPing(){ if(this._pingTimer){ clearInterval(this._pingTimer); this._pingTimer=null; } },
+  onPong(t){
+    if(typeof t!=='number') return;
+    const sample = performance.now()-t;
+    // exponential moving average: smooth but tracks changes
+    this.rtt = this.rttSamples===0 ? sample : this.rtt + (sample-this.rtt)*0.2;
+    this.rttSamples++;
+  },
   onSnap(){
     const now=performance.now();
     if(this._lastSnap){
       const gap=now-this._lastSnap;
       this._snapTimes.push(gap);
       if(this._snapTimes.length>60) this._snapTimes.shift();
-      // rolling worst gap over the recent window
       this.worstGap=Math.round(Math.max(...this._snapTimes));
       const avg=this._snapTimes.reduce((a,b)=>a+b,0)/this._snapTimes.length;
       this.rate=avg>0?Math.round(1000/avg):0;
+      // jitter = mean absolute deviation of gaps from the expected interval
+      const dev=this._snapTimes.map(g=>Math.abs(g-avg));
+      this.jitter=dev.reduce((a,b)=>a+b,0)/dev.length;
     }
     this._lastSnap=now;
   },
-  toggle(){ this.on=!this.on; if(this.on) this.start(); },
+};
+
+// ============================================================================
+//  NetDiag — the visible overlay (toggle with F2). Reads from NetStats.
+// ============================================================================
+const NetDiag = {
+  on:false,
+  onPong(t){ NetStats.onPong(t); },
+  onSnap(){ NetStats.onSnap(); },
+  toggle(){ this.on=!this.on; },
   draw(ctx){
     if(!this.on) return;
     const lines=[
       'NET DIAG  (press F2 to hide)',
-      'ping (RTT): '+this.rtt+' ms',
-      'snapshots/s: '+this.rate+'  (server sends 30)',
-      'worst gap: '+this.worstGap+' ms  (ideal ~33)',
+      'ping (RTT): '+Math.round(NetStats.rtt)+' ms',
+      'snapshots/s: '+NetStats.rate+'  (server sends 30)',
+      'jitter: '+Math.round(NetStats.jitter)+' ms   worst gap: '+NetStats.worstGap+' ms',
+      'interp delay: '+(net&&net.INTERP_DELAY?Math.round(net.INTERP_DELAY):0)+' ms  (=RTT/2+jitter+frame)',
       'buffer: '+(net&&net._buf?net._buf.length:0)+' snaps',
       'pending inputs: '+(net&&net._pending?net._pending.length:0),
     ];
@@ -1187,37 +1213,45 @@ class WSNet {
     this._pending = [];              // [{seq, input}] inputs not yet acked by server
     this._lastInput = {mx:0,my:0,aimX:1,aimY:0,shoot:false};
     this._serverMe = null;           // latest authoritative state of my tank
-    // ---- interpolation (adaptive delay to absorb network jitter) ----
-    // We render slightly in the past so there are always 2 snapshots to blend.
-    // The delay ADAPTS to the worst recent gap between snapshot arrivals: on a
-    // clean line it stays low (~80ms); on a bursty line (big gaps) it grows so a
-    // late batch doesn't starve the interpolator and cause a visible jump.
-    this.INTERP_DELAY = 120;         // current delay, ms (adaptive, see _onSnap)
-    this.MIN_DELAY = 80;
-    this.MAX_DELAY = 350;
-    this._gaps = [];                 // recent inter-arrival gaps (ms)
+    // ---- interpolation delay, derived from measured network conditions ----
+    // Standard "snapshot interpolation" buffer. We render slightly in the past so
+    // there are always two real snapshots to blend between. The size of that delay
+    // isn't a magic number — it's three measured quantities added together:
+    //   delay = (one-way trip) + (jitter cushion) + (one snapshot interval)
+    // • one-way trip ≈ RTT/2 — how stale the data already is when it reaches us.
+    // • jitter cushion = JITTER_SIGMA × measured jitter — covers irregular arrival.
+    // • one snapshot interval (1000/30 ≈ 33ms) — guarantees a second snapshot has
+    //   arrived to interpolate toward, never starving the interpolator.
+    // It recomputes from live NetStats each snapshot and eases in, so it tracks
+    // each player's real connection instead of being tuned by hand.
+    this.JITTER_SIGMA = 2;           // how many jitter-widths of safety cushion
+    this.SNAP_INTERVAL = 1000/30;    // server snapshot period (matches server SNAP rate)
+    this.MIN_DELAY = 40;             // floor: never render newer than this (needs 2 snaps)
+    this.MAX_DELAY = 320;            // ceiling: cap staleness on a terrible connection
+    this.INTERP_DELAY = 100;         // current value, eased toward the computed target
+    // ---- prediction reconciliation thresholds ----
+    // After replaying pending inputs, compare the result to where we're drawing the
+    // tank. Small error = exact, take it. Medium = ease (kill sub-pixel popping).
+    // Large = a hard snap/teleport reads cleaner than sliding across a big gap
+    // (happens on a hit, desync, lag spike, or a dropped packet).
+    this.SMOOTH_DIST = 3;            // px: below this, just take the replay result
+    this.SNAP_DIST = CFG.tile;       // px (~40, one tile): above this, teleport hard
   }
 
   // ---------- receive ----------
   _onSnap(v){
     const now = performance.now();
     v._rt = now;
-    // track inter-arrival jitter
-    if(this._lastArrival){
-      const gap = now - this._lastArrival;
-      this._gaps.push(gap);
-      if(this._gaps.length > 40) this._gaps.shift();
-      // target delay = a bit more than the worst recent gap, clamped. Ease toward
-      // it (don't snap) so the delay itself doesn't cause a visible time jump.
-      const worst = Math.max.apply(null, this._gaps);
-      const target = Math.max(this.MIN_DELAY, Math.min(this.MAX_DELAY, worst*1.3));
-      this.INTERP_DELAY += (target - this.INTERP_DELAY) * 0.1;
-    }
-    this._lastArrival = now;
+    // recompute the target delay from live measurements (RTT + jitter + interval)
+    const oneWay = NetStats.rtt * 0.5;
+    const cushion = NetStats.jitter * this.JITTER_SIGMA;
+    let target = oneWay + cushion + this.SNAP_INTERVAL;
+    target = Math.max(this.MIN_DELAY, Math.min(this.MAX_DELAY, target));
+    // ease toward it (rise faster than fall) so the delay itself never jumps the clock
+    const k = target > this.INTERP_DELAY ? 0.15 : 0.03;
+    this.INTERP_DELAY += (target - this.INTERP_DELAY) * k;
+
     this._buf.push(v);
-    // keep only what's needed for interpolation: anything older than the render
-    // window (delay + a margin) is useless. Drop by TIME, not by a fixed count,
-    // so a burst of late packets can't leave us rendering half-second-old state.
     const cutoff = now - (this.INTERP_DELAY + 200);
     while(this._buf.length > 2 && this._buf[0]._rt < cutoff) this._buf.shift();
     if(this._buf.length > 40) this._buf.shift();   // hard safety cap
@@ -1255,13 +1289,27 @@ class WSNet {
         // drop inputs the server already processed
         const ack = me.ackSeq||0;
         this._pending = this._pending.filter(e=>e.seq>ack);
-        // start from the authoritative position, replay everything still pending
+        // replay every still-pending input over the authoritative position
         let px=me.x, py=me.y;
         for(const e of this._pending){
           const r=this._applyMove(px,py,e.input,me);
           px=r.x; py=r.y;
         }
-        this._pred.x=px; this._pred.y=py;       // exact: no rubber-band, compares same point in time
+        // how far is the replayed result from where we were showing the tank?
+        const err = Math.hypot(px-this._pred.x, py-this._pred.y);
+        if(err > this.SNAP_DIST){
+          // big divergence (got hit, desync, lag spike, lost packet) -> a hard
+          // teleport reads cleaner than sliding across the gap. Drop the old
+          // prediction and jump to the authoritative truth.
+          this._pred.x = px; this._pred.y = py;
+        } else if(err > this.SMOOTH_DIST){
+          // medium drift -> ease most of the way so tiny corrections don't pop
+          this._pred.x += (px-this._pred.x)*0.5;
+          this._pred.y += (py-this._pred.y)*0.5;
+        } else {
+          // small/no error -> the replay is exact, take it as-is
+          this._pred.x = px; this._pred.y = py;
+        }
       }
     }
     if(!this._running){
