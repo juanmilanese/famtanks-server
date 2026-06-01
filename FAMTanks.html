@@ -1052,7 +1052,7 @@ const SERVER_URL = (location.protocol === 'https:' || location.protocol === 'htt
 // Bump by hand when the client changes. Shown on the welcome screen so a tester
 // can read it off and we know which build they're running. The server reports its
 // own version separately (in snapshots as `sv`), so the welcome can show both.
-const CLIENT_VERSION = 'v6';
+const CLIENT_VERSION = 'v7';
 
 // ---- the single shared socket + a tiny message router -------------------
 let _ws = null;
@@ -1124,21 +1124,12 @@ class WSNet {
     this._lastInput = {mx:0,my:0,aimX:1,aimY:0,shoot:false};
     this._serverMe = null;           // latest authoritative state of my tank
     // ---- interpolation (server-clock based) ----
-    this.INTERP_DELAY = 60;          // render ~60ms in the past (between 2 real snaps @60/s)
-    this._clockOffset = null;        // serverNow - clientNow (ms), smoothed
+    this.INTERP_DELAY = 100;         // render ~100ms in the past (robust default)
   }
 
   // ---------- receive ----------
   _onSnap(v){
-    const cNow = performance.now();
-    v._rt = cNow;
-    // estimate clock offset (server time vs our perf clock) so interpolation uses
-    // a single shared timeline. Smooth it to avoid jitter; first sample sets it.
-    if (typeof v.st === 'number'){
-      const sample = v.st - cNow;
-      this._clockOffset = (this._clockOffset===null) ? sample
-                        : this._clockOffset + (sample - this._clockOffset)*0.05;
-    }
+    v._rt = performance.now();       // local arrival time, used for interpolation
     this._buf.push(v);
     if (this._buf.length > 16) this._buf.shift();
     this._ingest(v);
@@ -1225,23 +1216,22 @@ class WSNet {
     this._pred.x=r.x; this._pred.y=r.y; this._predVX=r.vx; this._predVY=r.vy;
   }
 
-  // ---------- interpolate everyone else (shared server timeline) ----------
+  // ---------- interpolate everyone else ----------
+  // We interpolate against snapshot ARRIVAL time on the local clock (_rt). This
+  // avoids any server/client clock-sync: we just render slightly in the past so
+  // there are always two real snapshots to blend between.
   _interpolated(){
     const buf=this._buf;
     if(buf.length===0) return {players:[],bullets:[],pickups:[],beacons:[]};
-    // render time on the SERVER clock, delayed
-    const off=this._clockOffset||0;
-    const renderT=(performance.now()+off) - this.INTERP_DELAY;
-    // find the two snapshots (by server time st) that straddle renderT
+    const renderT = performance.now() - this.INTERP_DELAY;
+    // find the two snapshots (by local arrival _rt) that straddle renderT
     let a=null,b=null;
     for(let k=buf.length-1;k>=0;k--){
-      const st=buf[k].st!=null?buf[k].st:(buf[k]._rt+off);
-      if(st<=renderT){ a=buf[k]; b=buf[k+1]||buf[k]; break; }
+      if(buf[k]._rt<=renderT){ a=buf[k]; b=buf[k+1]||buf[k]; break; }
     }
-    if(!a){ a=buf[0]; b=buf[1]||buf[0]; }
-    const sta=a.st!=null?a.st:(a._rt+off), stb=b.st!=null?b.st:(b._rt+off);
-    const span=(stb-sta)||1;
-    let f=(renderT-sta)/span; f=Math.max(0,Math.min(1,f));
+    if(!a){ a=buf[0]; b=buf[1]||buf[0]; }      // renderT older than all -> oldest pair
+    const span=(b._rt-a._rt)||1;
+    let f=(renderT-a._rt)/span; f=Math.max(0,Math.min(1,f));
     const lerp=(x,y)=>x+(y-x)*f;
 
     const bById={}; for(const p of b._players) bById[p.id]=p;
@@ -1260,11 +1250,9 @@ class WSNet {
       }
       return out;
     });
+    // bullets: hold the latest snapshot (no extrapolation — it was adding jitter)
     const latest=buf[buf.length-1];
-    const stl=latest.st!=null?latest.st:(latest._rt+off);
-    const dtB=(renderT-stl)/1000*60;     // frames past the latest snapshot
-    const bullets=latest._bullets.map(bl=>({...bl, x:bl.x+bl.vx*dtB, y:bl.y+bl.vy*dtB}));
-    return { players, bullets, pickups:latest._pickups, beacons:latest._beacons };
+    return { players, bullets:latest._bullets, pickups:latest._pickups, beacons:latest._beacons };
   }
 
   _applyGrid(str){
@@ -1734,9 +1722,10 @@ let _clientInputAcc=0;
 function clientLoop(){
   if(!running)return;
   readInputRaw();
-  // send input every frame (~60/sec): input is tiny (~60 bytes) and this keeps
-  // shooting + aim crisp on the server. Movement is predicted locally regardless.
-  net.sendInput({...input});
+  // predict locally every frame; send to server ~30/sec. _setLocalInput keeps the
+  // prediction fed each frame without flooding the socket.
+  if(++_clientInputAcc>=2){ _clientInputAcc=0; net.sendInput({...input}); }
+  else { net._setLocalInput({...input}); }
   net.step();
   if(net.grid && (!terrainCanvas || net._terrainDirty)){ buildTerrain(); net._terrainDirty=false; }
   drainEvents();
