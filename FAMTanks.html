@@ -1,0 +1,2527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FAM Tanks</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Chakra+Petch:wght@400;600;700&display=swap');
+  :root{--bg:#0a0b08;--ink:#e9e6d8;--dim:#8a8771;--panel:#13140d;--line:#2c2e1f;--accent:#6fdc5a;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:radial-gradient(circle at 50% -10%,#1a1c12 0%,var(--bg) 65%),var(--bg);color:var(--ink);
+    font-family:'Chakra Petch',monospace;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;user-select:none;}
+  /* 16:9 dark cabinet that frames the whole experience, centered, with a generous safe frame */
+  .cabinet{width:min(96vw, calc(96vh * 16/9));height:min(96vh, calc(96vw * 9/16));
+    background:linear-gradient(160deg,#101109,#070803);border:1px solid #23251a;border-radius:14px;
+    box-shadow:0 30px 90px rgba(0,0,0,.7), inset 0 0 0 1px rgba(255,255,255,.02), inset 0 0 120px rgba(0,0,0,.6);
+    display:flex;align-items:center;justify-content:center;padding:clamp(16px,3vw,48px);position:relative;overflow:hidden;}
+  .cabinet::before{content:'';position:absolute;inset:10px;border:1px solid rgba(111,220,90,.07);border-radius:9px;pointer-events:none;}
+  .cabinet-inner{width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:auto;}
+  /* BLAST DOORS transition (on top of everything) */
+  #blastdoors{position:absolute;inset:0;z-index:50;pointer-events:none;display:none;overflow:hidden;border-radius:14px;}
+  #blastdoors.active{display:block;}
+  .door{position:absolute;left:0;width:100%;height:50%;
+    background:linear-gradient(180deg,#3a3d33,#23251c 45%,#191a13);
+    box-shadow:inset 0 0 80px rgba(0,0,0,.6);
+    transform:translateY(0);} /* closed position; JS animates */
+  .door-top{top:0;background:linear-gradient(180deg,#2a2c22,#34372c 70%,#3d4034);}
+  .door-bot{bottom:0;background:linear-gradient(0deg,#2a2c22,#34372c 70%,#3d4034);}
+  /* warning hazard rim on the edge that meets in the center */
+  .door-rim{position:absolute;left:0;width:100%;height:32px;
+    background:repeating-linear-gradient(45deg,#ffcf3f 0,#ffcf3f 14px,#1a1a12 14px,#1a1a12 28px);
+    box-shadow:0 0 12px rgba(0,0,0,.5);}
+  .door-top .door-rim{bottom:0;border-top:2px solid #15160f;}
+  .door-bot .door-rim{top:0;border-bottom:2px solid #15160f;}
+  #app{position:relative;display:flex;flex-direction:column;align-items:center;gap:14px;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;width:100%;padding:0 4px;}
+  .logo{font-family:'Black Ops One',cursive;font-size:28px;letter-spacing:4px;text-shadow:0 0 18px rgba(111,220,90,.3);text-transform:uppercase;}
+  .logo span{color:var(--accent);}
+  .net-badge{font-size:10px;letter-spacing:2px;padding:3px 9px;border:1px solid var(--line);border-radius:99px;color:var(--dim);}
+  .net-badge b{color:#ffcf3f;}
+
+  /* ---------- LOBBY ---------- */
+  #lobby{width:760px;background:var(--panel);border:3px solid var(--line);border-radius:4px;padding:22px;box-shadow:0 0 60px rgba(0,0,0,.8);}
+  .lobby-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px;}
+  .lobby-head h2{font-family:'Black Ops One',cursive;font-size:20px;letter-spacing:3px;text-transform:uppercase;}
+  .lobby-head .sub{color:var(--dim);font-size:12px;letter-spacing:1px;}
+  .slots{display:flex;flex-direction:column;gap:10px;}
+  .slot{display:flex;align-items:center;gap:12px;background:#0e0f09;border:1px solid var(--line);border-radius:4px;padding:12px 14px;min-height:62px;transition:border-color .2s;}
+  .slot.ready{border-color:var(--accent);box-shadow:0 0 16px rgba(111,220,90,.15) inset;}
+  .slot.open{opacity:.6;border-style:dashed;}
+  .slot .idx{font-family:'Black Ops One';font-size:13px;color:var(--dim);width:18px;}
+  .swatch{width:30px;height:30px;border-radius:5px;border:2px solid rgba(255,255,255,.15);cursor:pointer;flex-shrink:0;position:relative;}
+  .swatch.locked{cursor:not-allowed;opacity:.8;}
+  .nameInput{background:#000;border:1px solid var(--line);color:var(--ink);font-family:'Black Ops One';font-size:14px;letter-spacing:2px;padding:7px 10px;border-radius:3px;width:160px;text-transform:uppercase;}
+  .nameInput:disabled{opacity:.7;}
+  .nameTag{font-family:'Black Ops One';font-size:14px;letter-spacing:2px;width:160px;}
+  .badges{display:flex;gap:6px;}
+  .badge{font-size:9px;letter-spacing:1px;padding:2px 7px;border-radius:99px;border:1px solid var(--line);color:var(--dim);text-transform:uppercase;font-family:'Black Ops One';}
+  .badge.host{border-color:#ffcf3f;color:#ffcf3f;}
+  .badge.cpu{border-color:#4d9fff;color:#4d9fff;}
+  .badge.human{border-color:var(--accent);color:var(--accent);}
+  .badge.bet{border-color:#ff79c6;color:#ff79c6;}
+  .persPill{background:#1a1c12;border:1px solid #4d9fff55;color:#4d9fff;font-family:'Black Ops One';font-size:9px;letter-spacing:1px;padding:5px 8px;border-radius:99px;cursor:pointer;text-transform:uppercase;}
+  .persPill:hover{background:#22261a;border-color:#4d9fff;}
+  .slot.bettable{cursor:pointer;}
+  .slot.bettable:hover{border-color:#ff79c6;}
+  .slot.selected{cursor:pointer;}
+  .slot .right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+  .kindBtn,.miniBtn{background:#1a1c12;border:1px solid var(--line);color:var(--ink);font-family:'Chakra Petch';font-size:11px;letter-spacing:1px;padding:6px 10px;border-radius:3px;cursor:pointer;text-transform:uppercase;transition:background .15s;}
+  .kindBtn:hover,.miniBtn:hover{background:#262922;}
+  .readyChk{width:24px;height:24px;border:2px solid var(--line);border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:'Black Ops One';color:var(--accent);}
+  .readyChk.on{border-color:var(--accent);background:rgba(111,220,90,.12);}
+  .palette{position:absolute;top:36px;left:0;z-index:30;background:#000;border:1px solid var(--line);border-radius:5px;padding:7px;display:grid;grid-template-columns:repeat(4,1fr);gap:5px;box-shadow:0 8px 24px rgba(0,0,0,.6);}
+  .palette .pc{width:24px;height:24px;border-radius:4px;cursor:pointer;border:2px solid transparent;}
+  .palette .pc:hover{border-color:#fff;}
+  .palette .pc.taken{opacity:.25;cursor:not-allowed;}
+  .lobby-foot{margin-top:18px;display:flex;justify-content:space-between;align-items:center;gap:16px;}
+  .hostToggle{display:flex;gap:8px;}
+  .errs{color:#ff4d3b;font-size:11px;letter-spacing:1px;flex:1;line-height:1.5;}
+  .btn{font-family:'Black Ops One',cursive;letter-spacing:3px;font-size:16px;color:var(--bg);background:var(--accent);border:none;padding:13px 40px;border-radius:3px;cursor:pointer;box-shadow:0 0 30px rgba(111,220,90,.45);transition:transform .08s,box-shadow .2s,opacity .2s,background .12s,filter .12s;text-transform:uppercase;}
+  .btn:hover:not(:disabled){transform:translateY(-2px) scale(1.03);box-shadow:0 0 45px rgba(111,220,90,.7);filter:brightness(1.12);}
+  .btn:active:not(:disabled){transform:translateY(1px) scale(.97);box-shadow:0 0 18px rgba(111,220,90,.5);filter:brightness(.82);}
+  .btn:disabled{opacity:.3;cursor:not-allowed;box-shadow:none;}
+  .kindBtn,.miniBtn,.persPill{transition:transform .08s,filter .12s,border-color .15s,color .15s;}
+  .kindBtn:hover,.miniBtn:hover,.persPill:hover{filter:brightness(1.2);border-color:var(--accent);}
+  .kindBtn:active,.miniBtn:active,.persPill:active{transform:scale(.94);filter:brightness(.85);}
+  .betHint{font-size:11px;color:#ff79c6;letter-spacing:1px;margin-top:8px;display:none;}
+  .betHint.show{display:block;}
+
+  /* ---------- GAME ---------- */
+  #game{position:relative;display:none;}
+  #stage{position:relative;border:3px solid var(--line);box-shadow:0 0 0 1px rgba(0,0,0,.6),0 0 60px rgba(0,0,0,.8),inset 0 0 60px rgba(0,0,0,.5);border-radius:3px;overflow:hidden;}
+  canvas{display:block;}
+  #stage::after{content:'';position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.10) 0,rgba(0,0,0,0) 2px,rgba(0,0,0,0) 3px);mix-blend-mode:overlay;}
+  #gamebar{display:flex;align-items:center;justify-content:space-between;width:100%;padding:0 6px 8px;gap:16px;}
+  .hud{display:flex;gap:18px;font-family:'Black Ops One';font-size:12px;min-width:150px;}
+  .hud .stat{display:flex;flex-direction:column;gap:2px;}
+  .hud .stat label{color:var(--dim);font-size:9px;letter-spacing:2px;font-family:'Chakra Petch';}
+  .hud .stat b{font-size:18px;}
+  .reload-wrap{display:flex;flex-direction:column;align-items:center;gap:5px;flex:1;}
+  .reload{width:180px;height:7px;background:rgba(0,0,0,.5);border:1px solid var(--line);border-radius:3px;overflow:hidden;}
+  .reload .fill{height:100%;background:var(--accent);width:100%;box-shadow:0 0 10px var(--accent);transition:width .05s linear;}
+  .reload.charging .fill{background:var(--dim);box-shadow:none;}
+  .reload-wrap.hidden{visibility:hidden;}
+  .powerups{display:flex;gap:8px;min-height:18px;}
+  .pwr{font-size:9px;font-family:'Black Ops One';letter-spacing:1px;padding:2px 7px;border-radius:99px;border:1px solid;}
+  .scoreboard{display:flex;flex-direction:column;gap:3px;font-size:11px;text-align:right;min-width:150px;}
+  .scoreboard .row{display:flex;gap:8px;justify-content:flex-end;align-items:center;}
+  .scoreboard .row.bet .nm{color:#ff79c6;}
+  .scoreboard .nm{color:var(--dim);letter-spacing:1px;}
+  .scoreboard .kc{font-family:'Black Ops One';min-width:14px;}
+  .scoreboard .dot{width:8px;height:8px;border-radius:2px;}
+  .timer{font-family:'Black Ops One';font-size:24px;letter-spacing:2px;text-align:center;min-width:90px;}
+  .timer.warn{color:#ff4d3b;animation:pulse .5s infinite;}
+  @keyframes pulse{50%{opacity:.5;}}
+  .closeBtn{position:absolute;top:10px;right:12px;width:26px;height:26px;border:1px solid var(--line);background:rgba(0,0,0,.5);color:var(--ink);border-radius:4px;cursor:pointer;font-family:'Black Ops One';font-size:13px;z-index:5;display:flex;align-items:center;justify-content:center;}
+  .closeBtn:hover{border-color:#ff4d3b;color:#ff4d3b;}
+
+  /* ---------- RESULTS ---------- */
+  #results{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(circle at center,rgba(10,11,8,.7),rgba(10,11,8,.96));backdrop-filter:blur(4px);z-index:20;}
+  #fireworks{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:-1;}
+  #results.show{display:flex;}
+  .res-title{font-family:'Black Ops One';font-size:40px;letter-spacing:4px;text-transform:uppercase;}
+  .res-bet{font-size:14px;letter-spacing:1px;color:var(--dim);}
+  .leaderboard{display:flex;flex-direction:column;gap:6px;min-width:300px;margin:6px 0;}
+  .lb-row{display:flex;align-items:center;gap:12px;background:#0e0f09;border:1px solid var(--line);border-radius:4px;padding:9px 14px;}
+  .lb-row.betrow{box-shadow:0 0 0 1px #ff79c6 inset;}
+  .lb-rank{font-family:'Black Ops One';font-size:16px;width:26px;color:var(--dim);}
+  .lb-dot{width:12px;height:12px;border-radius:3px;}
+  .lb-name{font-family:'Black Ops One';letter-spacing:2px;flex:1;}
+  .lb-kills{font-family:'Black Ops One';font-size:18px;}
+  .footer{font-size:10px;letter-spacing:2px;color:var(--dim);opacity:.7;}
+</style>
+</head>
+<body>
+<div class="cabinet">
+  <div id="blastdoors" aria-hidden="true">
+    <div class="door door-top"><div class="door-rim"></div></div>
+    <div class="door door-bot"><div class="door-rim"></div></div>
+  </div>
+  <div class="cabinet-inner">
+<div id="app">
+  <div class="topbar">
+    <div class="logo">FAM<span>Tanks</span></div>
+    <div class="net-badge" id="netBadge">NET: <b>LOCAL</b> &middot; single-player sim</div>
+  </div>
+
+  <!-- WELCOME SCREEN: identity + host/join -->
+  <div id="welcome" style="display:none;max-width:520px;margin:40px auto;text-align:center;">
+    <h2 style="font-family:'Black Ops One';letter-spacing:1px;margin:0 0 4px;">Driver Profile</h2>
+    <div style="color:var(--dim);font-size:12px;margin-bottom:22px;">Set your callsign &amp; colour, then host or join a battle.</div>
+    <div style="display:flex;gap:12px;align-items:center;justify-content:center;margin-bottom:14px;">
+      <div id="wcSwatch" data-act="wcpalette" style="width:46px;height:46px;border-radius:8px;cursor:pointer;border:2px solid rgba(255,255,255,.2);"></div>
+      <input id="wcName" maxlength="14" placeholder="CALLSIGN"
+        style="background:#000;border:1px solid var(--line);color:var(--ink);font-family:'Black Ops One';letter-spacing:1px;text-transform:uppercase;padding:12px 14px;border-radius:6px;width:240px;font-size:16px;text-align:center;">
+      <button class="btn" id="wcReroll" title="Random callsign" style="font-size:12px;padding:10px 12px;min-width:0;">🎲</button>
+    </div>
+    <div id="wcPaletteHolder" style="position:relative;height:0;"></div>
+    <div style="display:flex;flex-direction:column;gap:12px;align-items:center;margin-top:26px;">
+      <button class="btn" id="wcHostBtn" style="font-size:14px;min-width:200px;">HOST A BATTLE</button>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <input id="joinCode" placeholder="ROOM CODE" maxlength="8"
+          style="background:#000;border:1px solid var(--line);color:var(--ink);font-family:'Chakra Petch';text-transform:uppercase;padding:11px 12px;border-radius:5px;width:130px;letter-spacing:2px;">
+        <button class="btn" id="wcJoinBtn" style="font-size:14px;">JOIN</button>
+      </div>
+    </div>
+    <div id="wcStatus" style="color:var(--dim);font-size:12px;margin-top:16px;min-height:16px;"></div>
+    <div id="wcVersion" style="color:var(--dim);opacity:.5;font-size:10px;margin-top:18px;letter-spacing:1px;font-family:'Chakra Petch';"></div>
+  </div>
+
+  <!-- IN-ROOM BAR (host or client, shown in lobby) -->
+  <div id="mpbar" style="display:none;gap:10px;align-items:center;justify-content:center;margin:10px 0;flex-wrap:wrap;min-height:42px;">
+    <span style="color:var(--dim);font-size:12px;">ROOM</span>
+    <span id="roomCodeView" style="font-family:'Black Ops One';letter-spacing:2px;color:var(--accent);font-size:16px;"></span>
+    <button class="btn" id="copyCodeBtn" title="Copy code" style="font-size:12px;padding:7px 10px;min-width:0;">COPY</button>
+    <button class="btn" id="leaveRoomBtn" style="font-size:12px;padding:7px 12px;border-color:#ff4d3b;color:#ff4d3b;">LEAVE ROOM</button>
+    <span id="roomStatus" style="color:var(--dim);font-size:12px;margin-left:8px;"></span>
+  </div>
+
+  <!-- LOBBY -->
+  <div id="lobby">
+    <div class="lobby-head">
+      <h2>Crew Assembly</h2>
+      <div class="sub">Up to 4 tanks &middot; 60s deathmatch &middot; most kills wins</div>
+    </div>
+    <div class="slots" id="slots"></div>
+    <div id="cpuFillRow" style="display:none;align-items:center;gap:8px;margin:6px 2px;color:var(--dim);font-size:12px;">
+      <input type="checkbox" id="cpuFillChk" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">
+      <label for="cpuFillChk" style="cursor:pointer;">Populate empty slots with CPU opponents on launch</label>
+    </div>
+    <div class="lobby-foot">
+      <div class="errs" id="errs"></div>
+      <button class="btn" id="launchBtn">LAUNCH</button>
+    </div>
+  </div>
+
+  <!-- GAME -->
+  <div id="game">
+    <div id="gamebar">
+      <div class="hud" id="hud"></div>
+      <div class="timer" id="timer">1:00</div>
+      <div class="reload-wrap" id="reloadWrap"><div class="reload" id="reload"><div class="fill" id="reloadFill"></div></div><div class="powerups" id="powerups"></div></div>
+      <div class="scoreboard" id="scoreboard"></div>
+    </div>
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <button class="closeBtn" id="closeBtn" title="Abandon to lobby">&times;</button>
+      <div id="results">
+        <canvas id="fireworks"></canvas>
+        <div class="res-title" id="resTitle">TIME</div>
+        <div class="res-bet" id="resBet"></div>
+        <div class="leaderboard" id="leaderboard"></div>
+        <button class="btn" id="backBtn">BACK TO LOBBY</button>
+      </div>
+    </div>
+  </div>
+</div>
+  </div>
+</div>
+
+<script>
+// ======================= SIMULATION CORE =======================
+// ============================================================================
+//  STEEL YARD — simulation core (engine-agnostic, testable headless)
+//  Networking abstracted behind NetAdapter. LocalAdapter (single-player) and
+//  WSNet (server-authoritative multiplayer) implement the same interface, so
+//  the renderer and game logic never change.
+// ============================================================================
+
+const CFG = {
+  arenaW: 760, arenaH: 560, tile: 40,
+  baseSpeed: 3.5,          // <-- normal top speed (tune here)
+  speedMult: 1.357,        // <-- SPEED power-up = baseSpeed(3.5) * this = 4.75 top speed
+  baseAccel: 0.6, baseFric: 0.74,
+  tank: { radius: 14, accel: 0.6, maxSpd: 3.5, friction: 0.74 }, // maxSpd mirrors baseSpeed
+  bot: {
+    accel: 0.6, maxSpd: 3.5, friction: 0.74,  // SAME physics as human (fairness); only the brain differs
+    aimError: 0.15, reactRange: 1000,
+    fireCooldown: 44, avoidLookahead: 28,
+  },
+  bullet: { radius: 4, speed: 6.0, life: 110, dmg: 1 },
+  breacherBullet: { radius: 9, speed: 5.0, life: 150 }, // slower than normal (6.0) but beats a SPEED tank (4.75)
+  rapidSpread: 0.087,      // ~5 degrees cone for rapid auto-fire
+  fireCooldown: 36, startLives: 3, respawnInvuln: 80,   // midpoint cooldown (between 24 and 48)
+  // per-power-up durations (frames @60fps): rapid 5s, breacher 6s, speed 7s, shield 8s, tiny 7s
+  dur: { rapid:300, breacher:360, speed:420, shield:480, tiny:420 },
+  maxActivePowerups: 3,    // only 3 timed power-ups active at once; 4th drops the oldest
+  matchSeconds: 60, brickHP: 2,
+  beaconSeconds: 9,        // countdown per beacon (9->0 = 10s)
+  pickup: { max: 4 },      // one item per beacon
+  itemWeights: { steel:1, rapid:1, speed:1, breacher:1, hull:0.5, tiny:1 }, // hull rarer (boring)
+  spawnBlast: { radius: 58, dmg: 1 }, // anti-spawncamp explosion on respawn / item destruction
+  startShield: 120,        // 2s shield on spawn (start AND respawn)
+  respawnDelay: 120,       // 2s before a killed tank respawns (death hurts -> more 1v1 duels)
+  tinyScale: 0.5,          // TinyTank: half size / half collision
+};
+
+const PALETTE = [
+  { id:'red',    hex:'#ff4d3b', name:'BLAZE' },
+  { id:'blue',   hex:'#4d9fff', name:'FROST' },
+  { id:'green',  hex:'#6fdc5a', name:'VIPER' },
+  { id:'yellow', hex:'#ffcf3f', name:'SPARK' },
+  { id:'orange', hex:'#a0633a', name:'RUST'  },
+  { id:'purple', hex:'#b27bff', name:'HEX'   },
+  { id:'pink',   hex:'#ff79c6', name:'NOVA'  },
+  { id:'cyan',   hex:'#3fe0d8', name:'TIDE'  },
+];
+
+const NAME_POOL = ['RUST','VIPER','BOXER','NOMAD','HAVOC','TREAD','GROM','IRONSIDE',
+  'BADGER','COBALT','SCRAP','HOWL','DIESEL','MAW','PIVOT','GHOST','BRUNO','TANKA',
+  'OXIDE','KRAKEN','RIVET','SLEDGE','DUST','VANDAL','HOVER','NICO','BOLT','FANG'];
+
+const COLS = Math.floor(CFG.arenaW / CFG.tile);
+const ROWS = Math.floor(CFG.arenaH / CFG.tile);
+
+// 4 spawn corners (tile coords + pixel center)
+const SPAWN_TILES = [
+  { c:1, r:ROWS-2 },        // bottom-left
+  { c:COLS-2, r:1 },        // top-right
+  { c:COLS-2, r:ROWS-2 },   // bottom-right
+  { c:1, r:1 },             // top-left
+];
+function spawnPx(s){ return { x:s.c*CFG.tile+CFG.tile/2, y:s.r*CFG.tile+CFG.tile/2 }; }
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
+function shuffleLocal(a){ const b=a.slice(); for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];} return b; }
+
+// ---------------------------------------------------------------------------
+//  PROCEDURAL MAP — symmetric (4-fold mirror), validated so no spawn is sealed.
+//  grid value: 0 open, 1 brick (destructible), 2 steel (solid)
+// ---------------------------------------------------------------------------
+function generateMap() {
+  for (let attempt=0; attempt<80; attempt++) {
+    const grid = Array.from({length:ROWS}, ()=>new Array(COLS).fill(0));
+    const halfC = Math.ceil(COLS/2), halfR = Math.ceil(ROWS/2);
+    const mc=Math.floor(COLS/2), mr=Math.floor(ROWS/2);
+
+    // generate one quadrant, then mirror into the other three for fairness
+    for (let r=0;r<halfR;r++){
+      for (let c=0;c<halfC;c++){
+        const nearSpawn = (c<=2 && r<=2);
+        if (nearSpawn) continue;
+        // never steel on the mid lines OR the quadrant-edge columns/rows
+        // (those are what visually "divide the arena", so keep them light)
+        const onMidCol = (c>=mc-1 && c<=mc+1) || (c>=COLS-2-mc && c<=COLS-mc);
+        const onMidRow = (r>=mr-1 && r<=mr+1) || (r>=ROWS-2-mr && r<=ROWS-mr);
+        const rnd = Math.random();
+        let v = 0;
+        if (rnd < 0.07 && !onMidCol && !onMidRow) v = 2;  // steel: rarer, never near mid
+        else if (rnd < 0.30) v = 1;                        // brick
+        if (v) {
+          grid[r][c] = v;
+          grid[r][COLS-1-c] = v;
+          grid[ROWS-1-r][c] = v;
+          grid[ROWS-1-r][COLS-1-c] = v;
+        }
+      }
+    }
+
+    // central steel anchor (small, symmetric)
+    [[0,0],[-1,0],[1,0],[0,-1],[0,1]].forEach(([dc,dr])=>{
+      const c=mc+dc, r=mr+dr; if(c>=0&&c<COLS&&r>=0&&r<ROWS) grid[r][c]=2;
+    });
+
+    // force-clear a 3x3 around every tank spawn
+    for (const s of SPAWN_TILES){
+      for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+        const c=s.c+dc, r=s.r+dr;
+        if(c>=0&&c<COLS&&r>=0&&r<ROWS) grid[r][c]=0;
+      }
+    }
+
+    // BEACONS: pick one position inside the top-left quadrant, then MIRROR it to
+    // all four quadrants. Keep it in the OUTER part of the quadrant (away from the
+    // mid-lines) so mirrored beacons are always far apart, never two adjacent at center.
+    const bcMax = Math.min(halfC-1, mc-3);   // stay >=3 tiles from the vertical mid-line
+    const brMax = Math.min(halfR-1, mr-3);   // stay >=3 tiles from the horizontal mid-line
+    const bc = 3 + Math.floor(Math.random()*Math.max(1,(bcMax-3)));
+    const br = 3 + Math.floor(Math.random()*Math.max(1,(brMax-3)));
+    const itemTiles = [
+      { c: bc,            r: ROWS-1-br },  // bottom-left
+      { c: COLS-1-bc,     r: br },         // top-right
+      { c: COLS-1-bc,     r: ROWS-1-br },  // bottom-right
+      { c: bc,            r: br },         // top-left
+    ];
+    // de-steel a ring around each beacon so it's reachable & not walled
+    for(const it of itemTiles){
+      for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+        const c=it.c+dc, r=it.r+dr;
+        if(c<0||c>=COLS||r<0||r>=ROWS)continue;
+        if(grid[r][c]===2) grid[r][c]=0;
+      }
+    }
+
+    if (validateReachability(grid, itemTiles)) {
+      const hp = Array.from({length:ROWS}, (_,r)=>
+        Array.from({length:COLS}, (_,c)=> grid[r][c]===1 ? CFG.brickHP : 0));
+      return { grid, hp, itemTiles };
+    }
+  }
+  // fallback safe map
+  const grid = Array.from({length:ROWS}, ()=>new Array(COLS).fill(0));
+  const hp = Array.from({length:ROWS}, ()=>new Array(COLS).fill(0));
+  return { grid, hp, itemTiles: computeItemTiles() };
+}
+
+// fallback beacon positions (symmetric)
+function computeItemTiles(){
+  const bc=4, br=4;
+  return [
+    { c: bc,        r: ROWS-1-br },
+    { c: COLS-1-bc, r: br },
+    { c: COLS-1-bc, r: ROWS-1-br },
+    { c: bc,        r: br },
+  ];
+}
+function _unused_computeItemTiles(rng){
+  const rand = rng || Math.random;
+  const zones=[
+    { cMin:3, cMax:6,        rMin:ROWS-7, rMax:ROWS-4 },
+    { cMin:COLS-7, cMax:COLS-4, rMin:3, rMax:6 },
+    { cMin:COLS-7, cMax:COLS-4, rMin:ROWS-7, rMax:ROWS-4 },
+    { cMin:3, cMax:6,        rMin:3, rMax:6 },
+  ];
+  return zones.map(z=>({
+    c: z.cMin + Math.floor(rand()*(z.cMax-z.cMin+1)),
+    r: z.rMin + Math.floor(rand()*(z.rMax-z.rMin+1)),
+  }));
+}
+
+function validateReachability(grid, itemTiles) {
+  // Flood-fill #1: connectivity through OPEN tiles only (real driving paths,
+  // no need to shoot through brick). All 4 spawns must share one open region.
+  function floodOpen(){
+    const passable=(c,r)=> c>=0&&c<COLS&&r>=0&&r<ROWS && grid[r][c]===0;
+    const start=SPAWN_TILES[0];
+    const seen=Array.from({length:ROWS},()=>new Array(COLS).fill(false));
+    const stack=[[start.c,start.r]]; seen[start.r][start.c]=true;
+    while(stack.length){
+      const [c,r]=stack.pop();
+      for(const [dc,dr] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const nc=c+dc,nr=r+dr;
+        if(passable(nc,nr)&&!seen[nr][nc]){seen[nr][nc]=true;stack.push([nc,nr]);}
+      }
+    }
+    return seen;
+  }
+  const seen=floodOpen();
+  // every spawn reachable purely by open tiles from spawn 0
+  for(const s of SPAWN_TILES){ if(!seen[s.r][s.c]) return false; }
+  // every beacon tile reachable too
+  if(itemTiles){ for(const it of itemTiles){ if(!seen[it.r][it.c]) return false; } }
+  // each spawn must have at least one open neighbor (escape exists)
+  for(const s of SPAWN_TILES){
+    let openN=0;
+    for(const [dc,dr] of [[1,0],[-1,0],[0,1],[0,-1]]){
+      const nc=s.c+dc,nr=s.r+dr;
+      if(nc>=0&&nc<COLS&&nr>=0&&nr<ROWS&&grid[nr][nc]===0) openN++;
+    }
+    if(openN===0) return false;
+  }
+  return true;
+}
+
+// ============================================================================
+//  LOCAL ADAPTER
+//  participants: array of {kind:'human'|'cpu', name, colorId, isHost, betOn?}
+//  localId is the human/host player id; in spectator mode it's the bet target.
+// ============================================================================
+class LocalAdapter {
+  constructor(participants) {
+    const map = generateMap();
+    this.grid = map.grid; this.hp = map.hp; this.itemTiles = map.itemTiles;
+    this.bullets = []; this.pickups = []; this.events = []; this.floaters = [];
+    this.frame = 0; this._running = true;
+    this._pickupSeq = 0;          // FIFO ordering id
+    this.timeLeft = CFG.matchSeconds;
+    this._tickAcc = 0;
+    this.startCountdown = 3;      // 3..2..1..GO! gate before input is live
+    this._startAcc = 0;
+    this.live = false;            // becomes true after GO!
+
+    // BEACONS: one per quadrant node. Each counts down from beaconSeconds.
+    // state: 'counting' (ticking) | 'occupied' (frozen at 9, holds an item)
+    this.beacons = this.itemTiles.map((it,idx)=>({
+      idx, c:it.c, r:it.r,
+      x: it.c*CFG.tile+CFG.tile/2, y: it.r*CFG.tile+CFG.tile/2,
+      count: CFG.beaconSeconds, state:'counting',
+    }));
+    this._beaconAcc = 0;
+
+    // shuffle-bag for item types (true-ish variety, no long repeats)
+    this._typeBag = [];
+
+    const personalities = ['hunter','ambusher','forager','wanderer'];
+    const spawns = shuffle([0,1,2,3]);
+    this.players = participants.map((p, i)=>{
+      const st = SPAWN_TILES[spawns[i]];
+      const px = spawnPx(st);
+      const hex = PALETTE.find(c=>c.id===p.colorId)?.hex || '#fff';
+      let pers = p.personality && p.personality!=='random' ? p.personality : null;
+      return {
+        id: 'P'+i, name: p.name, color: hex, colorId: p.colorId,
+        kind: p.kind, isHost: !!p.isHost,
+        personality: pers,
+        x: px.x, y: px.y, vx:0, vy:0, spawnX:px.x, spawnY:px.y,
+        bodyAng: Math.random()*6.28, aimX:1, aimY:0,
+        lives: CFG.startLives, kills:0, alive:true,
+        cooldown:0, invuln: CFG.respawnInvuln,
+        botCd: Math.random()*60, wanderX:Math.random()*2-1, wanderY:Math.random()*2-1,
+        retargetCd:0, currentTarget:null,
+        shield:CFG.startShield, rapidFire:0, speedster:0, breacher:0, tiny:0, hitFlash:0, // 2s spawn shield
+        puOrder:[],     // FIFO order of active TIMED power-ups for the 3-max cap
+        deathAng:0,     // random rotation for the death stamp
+        breakIntent:0, // frames the bot wants to shoot a wall to pass
+      };
+    });
+    const taken = this.players.filter(p=>p.personality).map(p=>p.personality);
+    let remaining = shuffle(personalities.filter(x=>!taken.includes(x)));
+    for(const p of this.players){
+      if(p.kind==='cpu' && !p.personality){
+        if(remaining.length) p.personality = remaining.shift();
+        else p.personality = personalities[Math.floor(Math.random()*personalities.length)];
+      }
+    }
+
+    const human = participants.findIndex(p=>p.kind==='human');
+    this.localId = human>=0 ? 'P'+human : null;
+    const betIdx = participants.findIndex(p=>p.betOn);
+    this.betId = betIdx>=0 ? 'P'+betIdx : null;
+
+    this.input = { mx:0, my:0, aimX:1, aimY:0, shoot:false };
+    this.winner = null;
+  }
+
+  _refillBag(){
+    // weighted shuffle bag honoring fractional weights (scale up so 0.5 stays rarer than 1)
+    const bag=[];
+    for(const [type,w] of Object.entries(CFG.itemWeights)){
+      const n=Math.max(1, Math.round(w*2)); // x2 scale: weight 1 -> 2 copies, 0.5 -> 1 copy
+      for(let i=0;i<n;i++) bag.push(type);
+    }
+    this._typeBag = shuffle(bag);
+  }
+  _nextType(){
+    if(!this._typeBag || this._typeBag.length===0) this._refillBag();
+    return this._typeBag.pop();
+  }
+
+  getPlayers(){ return this.players; }
+  sendInput(i){ this.input = i; }
+
+  _solidAt(px,py){
+    const c=Math.floor(px/CFG.tile), r=Math.floor(py/CFG.tile);
+    if(c<0||c>=COLS||r<0||r>=ROWS) return false;
+    return this.grid[r][c]!==0;
+  }
+  _collideTank(px,py,r){
+    const pts=[[px-r,py],[px+r,py],[px,py-r],[px,py+r],[px-r*0.7,py-r*0.7],[px+r*0.7,py+r*0.7],[px-r*0.7,py+r*0.7],[px+r*0.7,py-r*0.7]];
+    for(const [x,y] of pts) if(this._solidAt(x,y)) return true;
+    return false;
+  }
+  _move(p,dx,dy,maxSpd,fric){
+    // SHMUP movement: velocity = direction * speed, instantly. No accel, no friction.
+    const boosting = p.speedster>0;
+    const spd = boosting ? CFG.baseSpeed*CFG.speedMult : maxSpd;
+    const rad = CFG.tank.radius*(p.tiny>0?CFG.tinyScale:1);
+    const mag = Math.hypot(dx,dy);
+    if(mag>0.001){
+      p.vx = dx/mag*spd; p.vy = dy/mag*spd;   // full speed in input direction
+      p.bodyAng = Math.atan2(p.vy,p.vx);
+    } else {
+      p.vx = 0; p.vy = 0;                      // release -> instant stop
+    }
+    let nx=p.x+p.vx, ny=p.y+p.vy;
+    if(this._collideTank(nx,p.y,rad)){nx=p.x;p.vx=0;}
+    if(this._collideTank(p.x,ny,rad)){ny=p.y;p.vy=0;}
+    p.x=Math.max(rad,Math.min(CFG.arenaW-rad,nx));
+    p.y=Math.max(rad,Math.min(CFG.arenaH-rad,ny));
+  }
+  _fire(p){
+    if(p.cooldown>0||!p.alive) return;
+    const rapid = p.rapidFire>0;
+    let a=Math.atan2(p.aimY,p.aimX);
+    if(rapid) a += (Math.random()*2-1)*CFG.rapidSpread; // ~5° cone
+    const breach = p.breacher>0;
+    const bdef = breach ? CFG.breacherBullet : CFG.bullet;
+    this.bullets.push({
+      x:p.x+Math.cos(a)*(CFG.tank.radius+8), y:p.y+Math.sin(a)*(CFG.tank.radius+8),
+      vx:Math.cos(a)*bdef.speed, vy:Math.sin(a)*bdef.speed,
+      life:bdef.life, owner:p.id, color:p.color,
+      breach,                       // breacher: one-hit-kill + breaks metal
+      breaksBrick: rapid || breach, // rapid also smashes brick (the "downside")
+      radius:bdef.radius });
+    // cooldown by combo: normal=base(36), breacher=48 (slower), rapid=12 (gatling),
+    // rapid+breacher=24 (penalized — the nuclear combo fires slower than plain gatling)
+    let cd;
+    if(rapid && breach) cd = 24;
+    else if(rapid)      cd = 12;
+    else if(breach)     cd = 48;
+    else                cd = CFG.fireCooldown;  // 36
+    p.cooldown = cd;
+    this.events.push({t:'shot',x:p.x+Math.cos(a)*18,y:p.y+Math.sin(a)*18,ang:a,breach});
+  }
+  _damageBrick(c,r,instant){
+    if(this.grid[r][c]!==1) return;
+    const cx=c*CFG.tile+CFG.tile/2, cy=r*CFG.tile+CFG.tile/2;
+    if(instant){ this.hp[r][c]=0; this.grid[r][c]=0; this.events.push({t:'brickbreak',x:cx,y:cy}); return; }
+    this.hp[r][c]-=1;
+    if(this.hp[r][c]<=0){ this.grid[r][c]=0; this.events.push({t:'brickbreak',x:cx,y:cy}); }
+    else this.events.push({t:'brickhit',x:cx,y:cy});
+  }
+  _breakSteel(c,r){
+    if(this.grid[r][c]!==2) return;
+    this.grid[r][c]=0;
+    const cx=c*CFG.tile+CFG.tile/2, cy=r*CFG.tile+CFG.tile/2;
+    this.events.push({t:'steelshatter',x:cx,y:cy});
+  }
+
+  // ---- bot brain with 4 personalities ----
+  //  hunter:   chases NEAREST enemy, aggressive, fires a lot
+  //  ambusher: targets FARTHEST enemy / cuts angles, medium aggression
+  //  forager:  prioritizes items, only fights when cornered
+  //  wanderer: erratic, swaps targets often, roams
+  _botThink(p){
+    const enemies=this.players.filter(o=>o.id!==p.id && o.alive);
+    let ax=0,ay=0, desiredX=0, desiredY=0;
+    const pers=p.personality||'hunter';
+
+    // pick target according to personality (with retarget cadence)
+    if(p.retargetCd>0) p.retargetCd--;
+    let target=null;
+    if(enemies.length){
+      if(pers==='hunter'){
+        let best=1e9; for(const o of enemies){const d=Math.hypot(o.x-p.x,o.y-p.y);if(d<best){best=d;target=o;}}
+      } else if(pers==='ambusher'){
+        let far=-1; for(const o of enemies){const d=Math.hypot(o.x-p.x,o.y-p.y);if(d>far){far=d;target=o;}}
+      } else if(pers==='wanderer'){
+        if(!p.currentTarget || p.retargetCd<=0 || !enemies.includes(p.currentTarget)){
+          p.currentTarget=enemies[Math.floor(Math.random()*enemies.length)]; p.retargetCd=120+Math.random()*120;
+        }
+        target=p.currentTarget;
+      } else { // forager: nearest only as fallback
+        let best=1e9; for(const o of enemies){const d=Math.hypot(o.x-p.x,o.y-p.y);if(d<best){best=d;target=o;}}
+      }
+    }
+
+    // find nearest pickup
+    let pk=null,pb=1e9;
+    for(const k of this.pickups){const d=Math.hypot(k.x-p.x,k.y-p.y);if(d<pb){pb=d;pk=k;}}
+
+    // ---- forager: go for items first ----
+    if(pers==='forager' && pk){
+      const kdx=pk.x-p.x,kdy=pk.y-p.y,kd=Math.hypot(kdx,kdy)||1;
+      desiredX=kdx/kd; desiredY=kdy/kd;
+      // aim at and shoot nearby threats opportunistically
+      if(target){const tdx=target.x-p.x,tdy=target.y-p.y,td=Math.hypot(tdx,tdy)||1;
+        p.aimX=tdx/td;p.aimY=tdy/td;
+        if(p.botCd<=0 && td<320){this._fire(p);p.botCd=CFG.bot.fireCooldown+Math.random()*30;}}
+    }
+    else if(target){
+      const dx=target.x-p.x, dy=target.y-p.y, d=Math.hypot(dx,dy)||1;
+      const aimA=Math.atan2(dy,dx)+(Math.random()*2-1)*CFG.bot.aimError;
+      p.aimX=Math.cos(aimA); p.aimY=Math.sin(aimA);
+
+      // engagement distance + aggression vary by personality
+      let want=200, fireRange=560, aggr=1;
+      if(pers==='hunter'){ want=120; fireRange=650; aggr=1.2; }      // gets in your face
+      else if(pers==='ambusher'){ want=340; fireRange=520; aggr=0.8; } // snipes from afar
+      else if(pers==='wanderer'){ want=230; fireRange=480; aggr=0.7; }
+
+      const dir = d>want?1:(d<want*0.7?-0.7:0.15);
+      desiredX = dx/d*dir; desiredY = dy/d*dir;
+      // strafe
+      desiredX += -dy/d*0.5*p.wanderX; desiredY += dx/d*0.5*p.wanderX;
+      // light pickup magnet if very close on the way
+      if(pk && pb<120){const kdx=pk.x-p.x,kdy=pk.y-p.y,kd=Math.hypot(kdx,kdy)||1;desiredX+=kdx/kd*0.5;desiredY+=kdy/kd*0.5;}
+      // fire
+      const cd = pers==='hunter'? CFG.bot.fireCooldown : CFG.bot.fireCooldown/aggr;
+      if(p.botCd<=0 && d<fireRange){ this._fire(p); p.botCd=cd+Math.random()*20; }
+    } else {
+      // no target: roam
+      p.wanderX+=(Math.random()*2-1)*0.06;
+      desiredX=p.wanderX; desiredY=p.wanderY;
+      const aa=Math.atan2(desiredY||0.01,desiredX||0.01); p.aimX=Math.cos(aa); p.aimY=Math.sin(aa);
+    }
+
+    // ---- WALL-BREAKING AGGRESSION (hacky, no A*) ----
+    // If a wall sits between the bot and its target/desired direction, shoot it
+    // open instead of only steering around. Once broken, normal nav+combat resumes.
+    if(target){
+      const tdx=target.x-p.x, tdy=target.y-p.y, td=Math.hypot(tdx,tdy)||1;
+      const dirx=tdx/td, diry=tdy/td;
+      // sample a couple tiles ahead toward target for a wall
+      let wallAhead=null;
+      for(let step=CFG.tile*0.8; step<=CFG.tile*2.2; step+=CFG.tile*0.7){
+        const sx=p.x+dirx*step, sy=p.y+diry*step;
+        const c=Math.floor(sx/CFG.tile), r=Math.floor(sy/CFG.tile);
+        if(c>=0&&c<COLS&&r>=0&&r<ROWS&&this.grid[r][c]!==0){ wallAhead={c,r,sx,sy}; break; }
+      }
+      // line-of-sight clear? (no wall between us and target within range)
+      const losBlocked = wallAhead && td < 360;
+      if(losBlocked){
+        p.breakIntent = 30;
+      }
+      if(p.breakIntent>0 && wallAhead){
+        // aim at the blocking wall and fire to clear a path
+        const wa=Math.atan2(wallAhead.sy-p.y, wallAhead.sx-p.x);
+        p.aimX=Math.cos(wa); p.aimY=Math.sin(wa);
+        if(p.botCd<=0){ this._fire(p); p.botCd=CFG.bot.fireCooldown*0.8; }
+        p.breakIntent--;
+      }
+    }
+
+    // ---- WALL AVOIDANCE + STUCK ESCAPE ----
+    const dm=Math.hypot(desiredX,desiredY)||1; desiredX/=dm; desiredY/=dm;
+    const look=CFG.bot.avoidLookahead;
+
+    // if currently in an escape maneuver, follow it
+    if(p.escapeCd>0){
+      desiredX=p.escapeX; desiredY=p.escapeY; p.escapeCd--;
+    } else {
+      // probe ahead; if blocked, steer to whichever perpendicular side is open
+      if(this._solidAt(p.x+desiredX*look, p.y+desiredY*look)){
+        const perpX=-desiredY, perpY=desiredX;
+        const leftOpen = !this._solidAt(p.x+perpX*look, p.y+perpY*look);
+        const rightOpen= !this._solidAt(p.x-perpX*look, p.y-perpY*look);
+        if(leftOpen && !rightOpen){ desiredX=perpX; desiredY=perpY; }
+        else if(rightOpen && !leftOpen){ desiredX=-perpX; desiredY=-perpY; }
+        else if(leftOpen && rightOpen){ const s=p.wanderX>0?1:-1; desiredX=perpX*s; desiredY=perpY*s; }
+        else { desiredX=-desiredX; desiredY=-desiredY; } // both blocked: back out
+      }
+    }
+
+    // STUCK DETECTION: barely moved over last frames despite wanting to → escape
+    const moved = Math.hypot(p.x-(p._lastX??p.x), p.y-(p._lastY??p.y));
+    p._lastX=p.x; p._lastY=p.y;
+    p._stuckAcc = moved < 0.4 ? (p._stuckAcc||0)+1 : 0;
+    if(p._stuckAcc > 12 && p.escapeCd<=0){
+      // pick a random open cardinal direction to break free
+      const dirs=shuffleLocal([[1,0],[-1,0],[0,1],[0,-1]]);
+      for(const [ex,ey] of dirs){
+        if(!this._solidAt(p.x+ex*look*1.5, p.y+ey*look*1.5)){
+          p.escapeX=ex; p.escapeY=ey; p.escapeCd=30; break;
+        }
+      }
+      p._stuckAcc=0;
+    }
+
+    // border push toward center (gentle, only very close to edge)
+    const margin=CFG.tile*0.8;
+    if(p.x<margin) desiredX=Math.abs(desiredX)+0.5;
+    if(p.x>CFG.arenaW-margin) desiredX=-Math.abs(desiredX)-0.5;
+    if(p.y<margin) desiredY=Math.abs(desiredY)+0.5;
+    if(p.y>CFG.arenaH-margin) desiredY=-Math.abs(desiredY)-0.5;
+
+    ax=desiredX; ay=desiredY;
+
+    if(p.botCd>0)p.botCd--;
+    if(Math.random()<0.015) p.wanderX=Math.random()*2-1;
+    this._move(p,ax,ay,CFG.bot.maxSpd,CFG.bot.friction);
+  }
+
+  _respawn(p){
+    p.x=p.spawnX;p.y=p.spawnY;p.vx=0;p.vy=0;p.alive=true;
+    p.lives=CFG.startLives;          // RESET lives on respawn (was the grey-pellet / 1-life bug)
+    p.invuln=CFG.respawnInvuln;      // brief blink, kept as visual
+    p.shield=CFG.startShield; // 2s shield (unified start+respawn)
+    p.rapidFire=0;p.speedster=0;p.breacher=0;p.tiny=0;p.puOrder=[];
+    this.events.push({t:'spawnscore',x:p.x,y:p.y,color:p.color,score:p.kills}); // current score on respawn
+    // anti-spawncamp blast: damages others nearby (not self); breaks brick around
+    this.events.push({t:'spawnblast',x:p.x,y:p.y,color:p.color});
+    const pc=Math.floor(p.x/CFG.tile), pr=Math.floor(p.y/CFG.tile);
+    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+      const c=pc+dc,r=pr+dr;
+      if(c>=0&&c<COLS&&r>=0&&r<ROWS&&this.grid[r][c]===1){ this.hp[r][c]=0; this.grid[r][c]=0;
+        this.events.push({t:'brickbreak',x:c*CFG.tile+CFG.tile/2,y:r*CFG.tile+CFG.tile/2}); }
+    }
+    for(const o of this.players){
+      if(o.id===p.id||!o.alive||o.invuln>0||o.shield>0)continue;
+      if(Math.hypot(o.x-p.x,o.y-p.y) < CFG.spawnBlast.radius){
+        o.alive=false;o.lives=0; o.kills=Math.max(0,o.kills-1);
+        o.deathAng=Math.random()*Math.PI*2;
+        p.kills++;
+        this.events.push({t:'killscore',x:p.x,y:p.y,color:p.color,score:p.kills,rank:this._topStatus(p)}); // killer's updated score + top status
+        this.events.push({t:'explosion',x:o.x,y:o.y,color:o.color});
+        this._clearBullets(o.id);
+        o.respawnAt=this.frame+CFG.respawnDelay;
+      }
+    }
+  }
+
+  // beacon-driven item spawn: each free beacon counts 9->0; at 0 it spawns an item
+  // (pulling from the global shuffle bag). Occupied beacons stay frozen.
+  _beaconTick(){
+    for(const b of this.beacons){ if(b.state==='counting' && b.count>0) b.count--; }
+    // EVERY beacon that reached 0 spawns its own item
+    const ready = this.beacons.filter(b=>b.state==='counting' && b.count<=0);
+    for(const b of ready){
+      this._spawnAtBeacon(b);
+    }
+    // any still-counting (non-occupied) beacon that hit 0 but didn't spawn resets
+    for(const b of this.beacons){ if(b.state==='counting' && b.count<=0){ b.count=CFG.beaconSeconds; } }
+  }
+
+  _spawnAtBeacon(beacon){
+    const type=this._nextType();
+    // FIFO cap at max: removing oldest frees its beacon
+    if(this.pickups.length>=CFG.pickup.max){
+      this.pickups.sort((a,b)=>a._seq-b._seq);
+      const old=this.pickups.shift();
+      this.events.push({t:'itemexpire',x:old.x,y:old.y});
+      const ob=this.beacons.find(b=>b.idx===old._node);
+      if(ob){ ob.state='counting'; ob.count=CFG.beaconSeconds; }
+    }
+    beacon.state='occupied'; // frozen until item taken
+    this.pickups.push({x:beacon.x,y:beacon.y,type,bob:Math.random()*6.28,_seq:this._pickupSeq++,_node:beacon.idx});
+    this.events.push({t:'itemspawn',x:beacon.x,y:beacon.y,kind:type});
+  }
+
+  // 3x3 explosion when an item is shot (like the anti-camper blast): breaks brick around it
+  _itemBlast(k){
+    this.events.push({t:'spawnblast',x:k.x,y:k.y,color:'#fff'});
+    this.events.push({t:'itemdestroyed',x:k.x,y:k.y,label:'ITEM DESTROYED'});
+    const pc=Math.floor(k.x/CFG.tile), pr=Math.floor(k.y/CFG.tile);
+    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+      const c=pc+dc,r=pr+dr;
+      if(c>=0&&c<COLS&&r>=0&&r<ROWS&&this.grid[r][c]===1){ this.hp[r][c]=0; this.grid[r][c]=0;
+        this.events.push({t:'brickbreak',x:c*CFG.tile+CFG.tile/2,y:r*CFG.tile+CFG.tile/2}); }
+    }
+  }
+
+  // centralized death (normal kill: -1 to victim floored at 0; optional killer +1)
+  // is this player currently at the top? 'first' (strictly highest), 'tied' (shares max), or null
+  _topStatus(pl){
+    const max=Math.max(...this.players.map(x=>x.kills));
+    if(pl.kills<max) return null;
+    const atMax=this.players.filter(x=>x.kills===max).length;
+    return atMax>1 ? 'tied' : 'first';
+  }
+  // when a tank dies, all of ITS in-flight bullets wink out (no kills from the grave)
+  _clearBullets(ownerId){
+    for(let i=this.bullets.length-1;i>=0;i--){
+      if(this.bullets[i].owner===ownerId){
+        this.events.push({t:'bulletfizzle',x:this.bullets[i].x,y:this.bullets[i].y});
+        this.bullets.splice(i,1);
+      }
+    }
+  }
+  _killTank(victim, killerId){
+    victim.alive=false; victim.lives=0;
+    if(killerId){ const k=this.players.find(x=>x.id===killerId); if(k && k.id!==victim.id){ k.kills++; this.events.push({t:'killscore',x:k.x,y:k.y,color:k.color,score:k.kills,rank:this._topStatus(k)}); } }
+    victim.kills=Math.max(0, victim.kills-1);
+    victim.deathAng=Math.random()*Math.PI*2;  // random rotation for the death stamp
+    this.events.push({t:'explosion',x:victim.x,y:victim.y,color:victim.color});
+    this._clearBullets(victim.id);
+    victim.respawnAt=this.frame+CFG.respawnDelay;
+  }
+
+  // tank-on-tank contact: both explode (or both lose shield); shield saves you
+  _tankTouch(){
+    const ps=this.players.filter(p=>p.alive);
+    for(let i=0;i<ps.length;i++)for(let j=i+1;j<ps.length;j++){
+      const a=ps[i],b=ps[j];
+      if(a.invuln>0||b.invuln>0) continue;
+      if(Math.hypot(a.x-b.x,a.y-b.y) < CFG.tank.radius*2 - 2){
+        const aS=a.shield>0, bS=b.shield>0;
+        if(aS||bS){
+          // anyone shielded loses the shield (and survives this tick); unshielded dies
+          if(aS){ a.shield=0; this.events.push({t:'shieldbreak',x:a.x,y:a.y,color:a.color}); }
+          else { this._killTank(a, null); }
+          if(bS){ b.shield=0; this.events.push({t:'shieldbreak',x:b.x,y:b.y,color:b.color}); }
+          else { this._killTank(b, null); }
+        } else {
+          // neither shielded -> both explode, normal deaths (-1 each, floored)
+          this._killTank(a, null);
+          this._killTank(b, null);
+        }
+      }
+    }
+  }
+
+  step(){
+    if(!this._running) return;
+    this.frame++;
+
+    // ---- START COUNTDOWN GATE: 3..2..1..GO! before anything is live ----
+    if(!this.live){
+      this._startAcc++;
+      if(this._startAcc>=50){ // ~0.83s per number
+        this._startAcc=0;
+        this.startCountdown--;
+        if(this.startCountdown>0){ this.events.push({t:'countbeep',n:this.startCountdown}); }
+        else { this.live=true; this.events.push({t:'go'});
+          for(const p of this.players) this.events.push({t:'spawnscore',x:p.x,y:p.y,color:p.color,score:p.kills});
+        }
+      }
+      // freeze: no input, no AI, no timer, no bullets while counting in
+      return;
+    }
+
+    // timer (assume ~60fps)
+    this._tickAcc++;
+    if(this._tickAcc>=60){ this._tickAcc=0; this.timeLeft--; if(this.timeLeft<=0){ this._endByTime(); } }
+
+    const me=this.localId? this.players.find(p=>p.id===this.localId):null;
+    if(me && me.kind==='human' && me.alive){
+      me.aimX=this.input.aimX; me.aimY=this.input.aimY;
+      this._move(me,this.input.mx,this.input.my,CFG.tank.maxSpd,CFG.tank.friction);
+      if(this.input.shoot) this._fire(me);
+    }
+    // REMOTE humans (multiplayer host): drive each from its latest network input
+    for(const p of this.players){
+      if(p.kind==='remote' && p.alive && p._netInput){
+        const ni=p._netInput;
+        p.aimX=ni.aimX; p.aimY=ni.aimY;
+        this._move(p,ni.mx,ni.my,CFG.tank.maxSpd,CFG.tank.friction);
+        if(ni.shoot) this._fire(p);
+      }
+    }
+    for(const p of this.players){
+      if(p.kind==='cpu' && p.alive) this._botThink(p);
+    }
+    for(const p of this.players){
+      if(p.cooldown>0)p.cooldown--; if(p.invuln>0)p.invuln--; if(p.hitFlash>0)p.hitFlash--;
+      // all power-ups are timed now (shield/speed too). Spawn shield (<1e8) also ticks.
+      const expire=(field,announce)=>{
+        if(p[field]>0){ p[field]--; if(p[field]===0){
+          const idx=p.puOrder.indexOf(field); if(idx>=0)p.puOrder.splice(idx,1);
+          if(announce) this.events.push({t:'powerdown',x:p.x,y:p.y});
+        } }
+      };
+      expire('rapidFire',true);
+      expire('breacher',true);
+      expire('speedster',false);
+      expire('tiny',false);
+      // shield: spawn shield (small value) ticks silently; pickup shield announces on expiry
+      if(p.shield>0){ const wasPickup=p.shield>CFG.startShield; p.shield--; if(p.shield===0){
+        const idx=p.puOrder.indexOf('shield'); if(idx>=0)p.puOrder.splice(idx,1);
+      } }
+      // AUTO-FIRE: rapid makes the tank fire continuously without input
+      if(p.alive && p.rapidFire>0 && p.cooldown<=0) this._fire(p);
+      if(!p.alive && p.respawnAt && this.frame>=p.respawnAt){ p.respawnAt=0; this._respawn(p); }
+    }
+
+    // BEACONS: tick once per second
+    this._beaconAcc++;
+    if(this._beaconAcc>=60){ this._beaconAcc=0; this._beaconTick(); }
+
+    // pickups: timed power-ups (rapid/breacher/speed/shield/tiny) + instant HULL heal.
+    // Max 3 TIMED active at once; grabbing a 4th drops the oldest (FIFO).
+    for(let i=this.pickups.length-1;i>=0;i--){
+      const k=this.pickups[i];
+      for(const p of this.players){
+        if(!p.alive)continue;
+        const rad = CFG.tank.radius*(p.tiny>0?CFG.tinyScale:1);
+        if(Math.hypot(p.x-k.x,p.y-k.y)<rad+13){
+          if(k.type==='hull'){
+            p.lives=CFG.startLives;            // HULL: full repair, instant (not a timed slot)
+          } else {
+            // map type -> player field + duration
+            const field={steel:'shield',speed:'speedster',rapid:'rapidFire',breacher:'breacher',tiny:'tiny'}[k.type];
+            const dur ={steel:CFG.dur.shield,speed:CFG.dur.speed,rapid:CFG.dur.rapid,breacher:CFG.dur.breacher,tiny:CFG.dur.tiny}[k.type];
+            // FIFO cap: if not already active and 3 are active, drop the oldest
+            if(!(p[field]>0)){
+              if(p.puOrder.length>=CFG.maxActivePowerups){
+                const oldest=p.puOrder.shift();
+                p[oldest]=0;
+                this.events.push({t:'powerdown',x:p.x,y:p.y});
+              }
+              p.puOrder.push(field);
+            }
+            p[field]=dur;
+          }
+          const label={steel:'SHIELD!',rapid:'RAPID!',speed:'SPEED!',breacher:'BREACHER!',hull:'HULL!',tiny:'TINY!'}[k.type];
+          this.events.push({t:'pickup',x:k.x,y:k.y,kind:k.type,playerId:p.id,label});
+          const b=this.beacons.find(bb=>bb.idx===k._node);
+          if(b){ b.state='counting'; b.count=CFG.beaconSeconds; }
+          this.pickups.splice(i,1); break;
+        }
+      }
+    }
+
+    // bullets
+    for(let i=this.bullets.length-1;i>=0;i--){
+      const b=this.bullets[i]; if(!b) continue;   // guard: _clearBullets may have spliced concurrently
+      b.x+=b.vx;b.y+=b.vy;b.life--;
+      const br=b.radius||CFG.bullet.radius;
+      let dead=b.life<=0||b.x<0||b.x>CFG.arenaW||b.y<0||b.y>CFG.arenaH;
+      // a bullet that hits an ITEM destroys it with a 3x3 blast (items are now breakable)
+      if(!dead){
+        for(let pi=this.pickups.length-1;pi>=0;pi--){
+          const k=this.pickups[pi];
+          if(Math.hypot(k.x-b.x,k.y-b.y) < CFG.tank.radius+br){
+            dead=true;
+            this._itemBlast(k);
+            const fb=this.beacons.find(bb=>bb.idx===k._node);
+            if(fb){ fb.state='counting'; fb.count=CFG.beaconSeconds; }
+            this.pickups.splice(pi,1);
+            break;
+          }
+        }
+      }
+      if(!dead){
+        const c=Math.floor(b.x/CFG.tile),r=Math.floor(b.y/CFG.tile);
+        if(c>=0&&c<COLS&&r>=0&&r<ROWS&&this.grid[r][c]!==0){
+          if(this.grid[r][c]===1){
+            if(b.breaksBrick) this._damageBrick(c,r,b.breach); // breach=instant, rapid=normal dmg
+            else { this._damageBrick(c,r,false); } // plain bullets still chip brick
+            dead=true;
+          }
+          else { // steel — only the breacher breaks it
+            if(b.breach){ this._breakSteel(c,r); dead=true; }
+            else { dead=true; this.events.push({t:'spark',x:b.x,y:b.y}); }
+          }
+        }
+      }
+      if(!dead){
+        for(const p of this.players){
+          if(!p.alive||p.id===b.owner||p.invuln>0)continue;
+          const prad=CFG.tank.radius*(p.tiny>0?CFG.tinyScale:1);
+          if(Math.hypot(p.x-b.x,p.y-b.y)<prad+br){
+            dead=true;
+            if(p.shield>0){
+              // shield absorbs ANY hit (incl. breacher one-shot) and breaks
+              p.shield=0; this.events.push({t:'shieldbreak',x:p.x,y:p.y,color:p.color});
+            } else {
+              // breacher = instant kill; normal = 1 life
+              const lethal = b.breach || (p.lives-CFG.bullet.dmg)<=0;
+              if(!b.breach) p.lives-=CFG.bullet.dmg;
+              this.events.push({t:'hit',x:p.x,y:p.y,color:p.color});
+              if(lethal){
+                p.alive=false;p.lives=0;
+                const killer=this.players.find(k=>k.id===b.owner);
+                if(killer && killer.id!==p.id){ killer.kills++; this.events.push({t:'killscore',x:killer.x,y:killer.y,color:killer.color,score:killer.kills,rank:this._topStatus(killer)}); }
+                p.kills=Math.max(0, p.kills-1);
+                p.deathAng=Math.random()*Math.PI*2;  // random rotation for the death stamp
+                this.events.push({t:'explosion',x:p.x,y:p.y,color:p.color});
+                (this._deferredClear||(this._deferredClear=[])).push(p.id);
+                p.respawnAt=this.frame+CFG.respawnDelay;
+              } else {
+                p.hitFlash=4; // brief white flash on surviving a hit
+              }
+            }
+            break;
+          }
+        }
+      }
+      if(dead){ this.events.push({t:'boom',x:b.x,y:b.y,breach:b.breach}); this.bullets.splice(i,1); }
+    }
+    // flush deferred bullet-clears (deaths that happened during the bullet loop)
+    if(this._deferredClear && this._deferredClear.length){
+      for(const id of this._deferredClear) this._clearBullets(id);
+      this._deferredClear.length=0;
+    }
+
+    // tank-on-tank contact (mutual explosion / shield logic)
+    this._tankTouch();
+  }
+
+  _endByTime(){
+    this._running=false;
+    const ranked=[...this.players].sort((a,b)=>b.kills-a.kills);
+    this.winner=ranked[0];
+    this.ranking=ranked;
+    this.events.push({t:'matchend'});
+  }
+}
+
+// export for headless test
+
+
+// ======================= WEBSOCKET NETCODE =======================
+// ============================================================================
+//  FAM TANKS — WEBSOCKET NETCODE  (server-authoritative)
+//  - The Render server runs the real simulation. The browser NEVER simulates.
+//  - Host and joiners are BOTH dumb screens: they send input + a few lobby
+//    messages, and receive full-frame snapshots. Host just owns the LAUNCH btn.
+//  - WSNet exposes the SAME interface the renderer already uses (getPlayers,
+//    events, live, timeLeft, _running, localId, grid, hp, bullets, ...).
+//  - One persistent socket per tab handles welcome -> lobby -> match -> results.
+// ============================================================================
+
+const SERVER_URL = 'wss://famtanks-server.onrender.com';
+
+// Bump by hand when the client changes. Shown on the welcome screen so a tester
+// can read it off and we know which build they're running. The server reports its
+// own version separately (in snapshots as `sv`), so the welcome can show both.
+const CLIENT_VERSION = 'v5';
+
+// ---- the single shared socket + a tiny message router -------------------
+let _ws = null;
+let _wsOpen = false;
+const _wsQueue = [];                 // messages queued until the socket opens
+const _wsHandlers = {};              // type -> fn(msg)
+
+function wsOn(type, fn){ _wsHandlers[type] = fn; }
+function wsOff(type){ delete _wsHandlers[type]; }
+function wsSend(obj){
+  const s = JSON.stringify(obj);
+  if (_wsOpen && _ws && _ws.readyState === 1) _ws.send(s);
+  else _wsQueue.push(s);
+}
+function wsConnect(onReady, onFail){
+  // reuse a live socket
+  if (_ws && (_ws.readyState === 0 || _ws.readyState === 1)){
+    if (_wsOpen) onReady && onReady(); else _ws.addEventListener('open', ()=>onReady&&onReady(), {once:true});
+    return;
+  }
+  try { _ws = new WebSocket(SERVER_URL); }
+  catch(e){ onFail && onFail(e); return; }
+
+  _ws.onopen = ()=>{
+    _wsOpen = true;
+    while (_wsQueue.length) _ws.send(_wsQueue.shift());
+    onReady && onReady();
+  };
+  _ws.onmessage = (ev)=>{
+    let m; try { m = JSON.parse(ev.data); } catch(e){ return; }
+    // snapshots go straight to the active WSNet instance (hot path)
+    if (m.type === 'snap'){ if (net && net._ingest) net._onSnap(m); return; }
+    const h = _wsHandlers[m.type];
+    if (h) h(m);
+  };
+  _ws.onclose = ()=>{
+    _wsOpen = false;
+    const h = _wsHandlers['__close']; if (h) h();
+  };
+  _ws.onerror = ()=>{ const h = _wsHandlers['__error']; if (h) h(); };
+}
+function wsClose(){
+  try { if (_ws) _ws.close(); } catch(e){}
+  _ws = null; _wsOpen = false; _wsQueue.length = 0;
+}
+
+// ============================================================================
+//  WSNet — server-authoritative mirror. Same interface for host AND joiners.
+//  Receives full-frame snapshots from the server and exposes them to the
+//  renderer. Sends only this tab's own input upward.
+// ============================================================================
+class WSNet {
+  constructor(myPlayerId){
+    this.localId = myPlayerId;       // 'P0'.. assigned by the server at 'start'
+    this.betId = null;
+    this._role = 'ws';
+    this._buf = [];                  // decoded snapshots, kept for interpolation
+    this._players = []; this._bullets = []; this._pickups = []; this._beacons = [];
+    this.events = []; this._pendingEvents = [];
+    this.grid = null; this.hp = null;
+    this.live = false; this.timeLeft = 60; this._running = true; this.startCountdown = 3;
+    this.winner = null; this.ranking = null;
+    this._lastGridStr = null; this._terrainDirty = false;
+    // ---- prediction with input sequencing + replay ----
+    this._pred = null;               // {x,y} predicted position of my tank
+    this._predVX = 0; this._predVY = 0;
+    this._seq = 0;                   // input sequence counter
+    this._pending = [];              // [{seq, input}] inputs not yet acked by server
+    this._lastInput = {mx:0,my:0,aimX:1,aimY:0,shoot:false};
+    this._serverMe = null;           // latest authoritative state of my tank
+    // ---- interpolation (server-clock based) ----
+    this.INTERP_DELAY = 60;          // render ~60ms in the past (between 2 real snaps @60/s)
+    this._clockOffset = null;        // serverNow - clientNow (ms), smoothed
+  }
+
+  // ---------- receive ----------
+  _onSnap(v){
+    const cNow = performance.now();
+    v._rt = cNow;
+    // estimate clock offset (server time vs our perf clock) so interpolation uses
+    // a single shared timeline. Smooth it to avoid jitter; first sample sets it.
+    if (typeof v.st === 'number'){
+      const sample = v.st - cNow;
+      this._clockOffset = (this._clockOffset===null) ? sample
+                        : this._clockOffset + (sample - this._clockOffset)*0.05;
+    }
+    this._buf.push(v);
+    if (this._buf.length > 16) this._buf.shift();
+    this._ingest(v);
+  }
+  _ingest(v){
+    if(v.sv && typeof renderVersionLine==='function' && _serverVersion!==v.sv){
+      _serverVersion = v.sv; renderVersionLine();
+    }
+    const toArr = x => Array.isArray(x) ? x : (x && typeof x === 'object' ? Object.values(x) : []);
+    this.live = v.live; this.timeLeft = v.timeLeft; this._running = v.running; this.startCountdown = v.startCountdown;
+    v._players = toArr(v.players).map(p=>({
+      id:p.id, name:p.n, color:p.c, colorId:p.ci, kind:'remote', kills:p.k,
+      x:p.x, y:p.y, vx:p.vx, vy:p.vy, bodyAng:p.ba, aimX:p.ax, aimY:p.ay,
+      spawnX:p.sx, spawnY:p.sy,
+      lives:p.lv, alive:!!p.al, invuln:p.iv,
+      shield:p.sh, rapidFire:p.rf, speedster:p.sp, breacher:p.br, tiny:p.ty, hitFlash:p.hf, deathAng:p.da,
+      ackSeq:p.as||0,
+    }));
+    v._bullets = toArr(v.bullets).map(b=>({x:b.x,y:b.y,vx:b.vx,vy:b.vy,color:b.c,breach:!!b.br,radius:b.r}));
+    v._pickups = toArr(v.pickups).map(k=>({x:k.x,y:k.y,type:k.tp,_seq:k.sq,bob:k.bob||0}));
+    v._beacons = toArr(v.beacons).map(b=>({idx:b.i,x:b.x,y:b.y,count:b.ct,state:b.st}));
+    if(v.grid){ this._applyGrid(v.grid); }
+    if(v.hp){ this._applyHp(v.hp); }
+    if(v.ev && v.ev.length){ this._pendingEvents.push(...toArr(v.ev)); }
+
+    // ---- reconcile my tank: replay un-acked inputs over the authoritative state ----
+    const me = v._players.find(p=>p.id===this.localId);
+    if(me){
+      this._serverMe = me;
+      if(!this._pred || !me.alive){
+        this._pred = {x:me.x, y:me.y};         // (re)anchor on spawn/death/first frame
+        this._pending.length = 0;
+      } else {
+        // drop inputs the server already processed
+        const ack = me.ackSeq||0;
+        this._pending = this._pending.filter(e=>e.seq>ack);
+        // start from the authoritative position, replay everything still pending
+        let px=me.x, py=me.y;
+        for(const e of this._pending){
+          const r=this._applyMove(px,py,e.input,me);
+          px=r.x; py=r.y;
+        }
+        this._pred.x=px; this._pred.y=py;       // exact: no rubber-band, compares same point in time
+      }
+    }
+    if(!this._running){
+      const rank = v._players.slice().sort((a,b)=>b.kills-a.kills);
+      this.winner = rank[0]; this.ranking = rank;
+    }
+  }
+
+  // ---------- movement model (mirrors core.js _move / _collideTank exactly) ----------
+  _solidAt(px,py){
+    if(!this.grid) return false;
+    const c=Math.floor(px/CFG.tile), r=Math.floor(py/CFG.tile);
+    if(c<0||c>=COLS||r<0||r>=ROWS) return false;
+    return this.grid[r][c]!==0;
+  }
+  _collideTank(px,py,rad){
+    const pts=[[px-rad,py],[px+rad,py],[px,py-rad],[px,py+rad],
+               [px-rad*0.7,py-rad*0.7],[px+rad*0.7,py+rad*0.7],[px-rad*0.7,py+rad*0.7],[px+rad*0.7,py-rad*0.7]];
+    for(const [x,y] of pts) if(this._solidAt(x,y)) return true;
+    return false;
+  }
+  // apply ONE input step from (px,py); returns new {x,y,vx,vy}. Pure: used for replay.
+  _applyMove(px,py,i,me){
+    const spd = (me && me.speedster>0) ? CFG.baseSpeed*CFG.speedMult : CFG.baseSpeed;
+    const rad = CFG.tank.radius*((me&&me.tiny>0)?CFG.tinyScale:1);
+    const mag = Math.hypot(i.mx,i.my);
+    let vx=0, vy=0;
+    if(mag>0.001){ vx=i.mx/mag*spd; vy=i.my/mag*spd; }
+    let nx=px+vx, ny=py+vy;
+    if(this._collideTank(nx,py,rad)){ nx=px; vx=0; }
+    if(this._collideTank(px,ny,rad)){ ny=py; vy=0; }
+    nx=Math.max(rad,Math.min(CFG.arenaW-rad,nx));
+    ny=Math.max(rad,Math.min(CFG.arenaH-rad,ny));
+    return {x:nx,y:ny,vx,vy};
+  }
+  // advance the local prediction by one frame using the freshest input
+  _predictStep(){
+    const me=this._serverMe;
+    if(!this._pred || !me || !me.alive) return;
+    const r=this._applyMove(this._pred.x,this._pred.y,this._lastInput,me);
+    this._pred.x=r.x; this._pred.y=r.y; this._predVX=r.vx; this._predVY=r.vy;
+  }
+
+  // ---------- interpolate everyone else (shared server timeline) ----------
+  _interpolated(){
+    const buf=this._buf;
+    if(buf.length===0) return {players:[],bullets:[],pickups:[],beacons:[]};
+    // render time on the SERVER clock, delayed
+    const off=this._clockOffset||0;
+    const renderT=(performance.now()+off) - this.INTERP_DELAY;
+    // find the two snapshots (by server time st) that straddle renderT
+    let a=null,b=null;
+    for(let k=buf.length-1;k>=0;k--){
+      const st=buf[k].st!=null?buf[k].st:(buf[k]._rt+off);
+      if(st<=renderT){ a=buf[k]; b=buf[k+1]||buf[k]; break; }
+    }
+    if(!a){ a=buf[0]; b=buf[1]||buf[0]; }
+    const sta=a.st!=null?a.st:(a._rt+off), stb=b.st!=null?b.st:(b._rt+off);
+    const span=(stb-sta)||1;
+    let f=(renderT-sta)/span; f=Math.max(0,Math.min(1,f));
+    const lerp=(x,y)=>x+(y-x)*f;
+
+    const bById={}; for(const p of b._players) bById[p.id]=p;
+    const players=a._players.map(pa=>{
+      const pb=bById[pa.id]||pa;
+      const out={...pa};
+      if(pa.id===this.localId && this._pred && pa.alive){
+        out.x=this._pred.x; out.y=this._pred.y;                 // predicted (instant)
+        out.aimX=this._lastInput.aimX; out.aimY=this._lastInput.aimY;
+        out.bodyAng=(Math.hypot(this._predVX,this._predVY)>0.01)?Math.atan2(this._predVY,this._predVX):pa.bodyAng;
+      } else {
+        out.x=lerp(pa.x,pb.x); out.y=lerp(pa.y,pb.y);            // interpolated (smooth)
+        out.aimX=lerp(pa.aimX,pb.aimX); out.aimY=lerp(pa.aimY,pb.aimY);
+        let d=pb.bodyAng-pa.bodyAng; while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
+        out.bodyAng=pa.bodyAng+d*f;
+      }
+      return out;
+    });
+    const latest=buf[buf.length-1];
+    const stl=latest.st!=null?latest.st:(latest._rt+off);
+    const dtB=(renderT-stl)/1000*60;     // frames past the latest snapshot
+    const bullets=latest._bullets.map(bl=>({...bl, x:bl.x+bl.vx*dtB, y:bl.y+bl.vy*dtB}));
+    return { players, bullets, pickups:latest._pickups, beacons:latest._beacons };
+  }
+
+  _applyGrid(str){
+    if(str===this._lastGridStr){ this._rebuildGrid(str); return; }
+    this._lastGridStr=str; this._rebuildGrid(str); this._terrainDirty=true;
+  }
+  _rebuildGrid(str){ const g=[]; let i=0; for(let r=0;r<ROWS;r++){ const row=[]; for(let c=0;c<COLS;c++){ row.push(+str[i++]||0); } g.push(row);} this.grid=g; }
+  _applyHp(str){ const h=[]; let i=0; for(let r=0;r<ROWS;r++){ const row=[]; for(let c=0;c<COLS;c++){ row.push(+str[i++]||0); } h.push(row);} this.hp=h; }
+
+  getPlayers(){ return this._players; }
+  get bullets(){ return this._bullets; }
+  get pickups(){ return this._pickups; }
+  get beacons(){ return this._beacons; }
+
+  _setLocalInput(i){ this._lastInput={mx:i.mx,my:i.my,aimX:i.aimX,aimY:i.aimY,shoot:!!i.shoot}; }
+  sendInput(i){
+    this._setLocalInput(i);
+    const seq=++this._seq;
+    const input={ mx:i.mx, my:i.my, aimX:+i.aimX.toFixed(2), aimY:+i.aimY.toFixed(2), shoot:!!i.shoot, seq };
+    this._pending.push({seq, input});
+    if(this._pending.length>120) this._pending.shift();   // safety cap (~2s)
+    wsSend({ type:'input', input });
+  }
+
+  step(){
+    this._predictStep();
+    const view=this._interpolated();
+    this._players=view.players; this._bullets=view.bullets;
+    this._pickups=view.pickups; this._beacons=view.beacons;
+    this.events=this._pendingEvents; this._pendingEvents=[];
+  }
+  shutdown(){ /* socket is shared/persistent; nothing per-instance to tear down */ }
+}
+
+
+// ======================= SOUND (Web Audio, synthesized) =======================
+const Sound=(()=>{
+  let ctx=null;
+  function init(){ if(!ctx) ctx=new (window.AudioContext||window.webkitAudioContext)(); if(ctx.state==='suspended')ctx.resume(); }
+  function tone(freq,dur,type,vol,slideTo){
+    if(!ctx)return;
+    const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
+    o.type=type||'square'; o.frequency.setValueAtTime(freq,t);
+    if(slideTo)o.frequency.exponentialRampToValueAtTime(slideTo,t+dur);
+    g.gain.setValueAtTime(vol||0.12,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+dur);
+  }
+  function noise(dur,vol){
+    if(!ctx)return;
+    const t=ctx.currentTime, n=Math.floor(ctx.sampleRate*dur);
+    const buf=ctx.createBuffer(1,n,ctx.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,2);
+    const src=ctx.createBufferSource(); src.buffer=buf;
+    const g=ctx.createGain(); g.gain.setValueAtTime(vol||0.2,t);
+    src.connect(g); g.connect(ctx.destination); src.start(t);
+  }
+  return {
+    init,
+    shot(breach){ if(breach){tone(120,0.22,'sawtooth',0.16,48);tone(70,0.28,'sawtooth',0.12,40);noise(0.1,0.12);} else {tone(420,0.09,'square',0.07,180);} },
+    metal(){ tone(900,0.05,'square',0.05,600); noise(0.04,0.06); },
+    brickHit(){ tone(180,0.06,'triangle',0.08,120); },
+    brickBreak(){ noise(0.18,0.18); tone(120,0.18,'sawtooth',0.08,60); },
+    steelShatter(){ noise(0.22,0.22); tone(700,0.16,'square',0.1,140); },
+    hit(){ tone(220,0.12,'sawtooth',0.12,90); },
+    explosion(){ noise(0.4,0.3); tone(90,0.45,'sawtooth',0.16,38); tone(160,0.2,'square',0.08,50); },
+    spawnblast(){ noise(0.25,0.2); tone(300,0.2,'square',0.1,80); },
+    pickup(){ tone(660,0.08,'square',0.1); setTimeout(()=>tone(990,0.1,'square',0.1),70); },
+    steelBreak(){ tone(500,0.1,'square',0.1,1200); noise(0.08,0.1); },
+    shieldBreak(){ noise(0.3,0.22); tone(420,0.18,'sawtooth',0.1,120); tone(180,0.22,'square',0.08,90); },
+    end(){ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>tone(f,0.18,'square',0.1),i*120)); },
+    fanfare(){ // celebratory win: rising arpeggio + a sparkly topper
+      const seq=[[523,0],[659,90],[784,180],[1046,270],[784,400],[1046,460],[1318,540]];
+      seq.forEach(([f,d])=>setTimeout(()=>tone(f,0.22,'square',0.11),d));
+      setTimeout(()=>{tone(1568,0.5,'triangle',0.09);tone(2093,0.5,'sine',0.05);},620);
+    },
+    doorClose(){ // staccato of metallic hits as the blast doors slam shut
+      [0,55,110].forEach((d,i)=>setTimeout(()=>{noise(0.05,0.14);tone(140-i*20,0.05,'square',0.08,80);},d));
+    },
+    doorClunk(){ noise(0.12,0.22); tone(80,0.22,'sawtooth',0.18,40); tone(150,0.1,'square',0.1,60); }, // heavy impact at center
+    doorOpen(){ noise(0.3,0.12); tone(200,0.35,'sawtooth',0.07,90); }, // hydraulic release
+    tick(){ tone(880,0.04,'square',0.05); },
+    uiClick(){ tone(520,0.05,'square',0.08); tone(780,0.04,'square',0.05,40); },
+    uiHover(){ tone(660,0.025,'sine',0.03); },
+    countbeep(){ tone(440,0.15,'square',0.12); },
+    countdownBeep(urgent){ tone(urgent?880:560,0.12,'square',0.13); },
+    go(){ tone(880,0.3,'square',0.14); setTimeout(()=>tone(1320,0.3,'square',0.12),60); },
+    powerdown(){ // quiet "fshhhh" depowered: noise through a downward-sweeping lowpass
+      if(!ctx)return;
+      const t=ctx.currentTime, dur=0.45, n=Math.floor(ctx.sampleRate*dur);
+      const buf=ctx.createBuffer(1,n,ctx.sampleRate), d=buf.getChannelData(0);
+      for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,1.6);
+      const src=ctx.createBufferSource(); src.buffer=buf;
+      const lp=ctx.createBiquadFilter(); lp.type='lowpass';
+      lp.frequency.setValueAtTime(3200,t); lp.frequency.exponentialRampToValueAtTime(280,t+dur);
+      const g=ctx.createGain(); g.gain.setValueAtTime(0.22,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+      src.connect(lp); lp.connect(g); g.connect(ctx.destination); src.start(t);
+      tone(330,0.4,'sine',0.08,90); // faint downward tail under the air
+    },
+  };
+})();
+
+// ======================= LOBBY STATE =======================
+const PALETTE_IDS = PALETTE.map(p=>p.id);
+function hexOf(id){ return PALETTE.find(p=>p.id===id)?.hex || '#fff'; }
+function nameOf(id){ return PALETTE.find(p=>p.id===id)?.name || 'CPU'; }
+function pickRand(a){ return a[Math.floor(Math.random()*a.length)]; }
+
+// random compound callsign, e.g. "APPLE-RIBBON"
+const NAME_A=['APPLE','IRON','NEON','VELVET','COPPER','EMBER','FROST','LUNAR','ROGUE','TURBO','ATOMIC','COBALT','CRIMSON','JADE','SOLAR','STORM','ONYX','RAPID','NOVA','DUSK','ECHO','VIPER'];
+const NAME_B=['RIBBON','FANG','PISTON','COMET','HAMMER','WRAITH','BISON','DRIFT','SPARK','TALON','BOLT','GHOST','RAVEN','BLADE','SURGE','CRANE','OTTER','MAVERICK','HORNET','JET','WOLF','ORBIT'];
+function randomName(){ return pickRand(NAME_A)+'-'+pickRand(NAME_B); }
+function randomColorId(exclude){
+  const pool=PALETTE_IDS.filter(id=>!exclude || !exclude.has(id));
+  return pickRand(pool.length?pool:PALETTE_IDS);
+}
+
+let slots = [
+  { kind:'human', name:randomName(), colorId:randomColorId(), ready:true, isHost:true, betOn:false },
+  { kind:'cpu',   name:'', colorId:null,    ready:true, personality:'random' },
+  { kind:'cpu',   name:'', colorId:null,    ready:true, personality:'random' },
+  { kind:'cpu',   name:'', colorId:null,    ready:true, personality:'random' },
+];
+let hostSpectator=false; // when true, slot0 host is a spectator (bets instead of plays)
+let openPalette=null;    // which slot index has palette open
+
+// restore the default single-player lobby (used after leaving a multiplayer room)
+function resetLobby(){
+  slots = [
+    { kind:'human', name:randomName(), colorId:randomColorId(), ready:true, isHost:true, betOn:false },
+    { kind:'cpu',   name:'', colorId:null, ready:true, personality:'random' },
+    { kind:'cpu',   name:'', colorId:null, ready:true, personality:'random' },
+    { kind:'cpu',   name:'', colorId:null, ready:true, personality:'random' },
+  ];
+  hostSpectator=false; openPalette=null;
+  rebalanceCPUs();
+}
+
+function rebalanceCPUs(){
+  // Humans are authoritative for COLOR. Each CPU's NAME is tied to its color
+  // (fixed character per color), so the name always follows the color.
+  const humanColors=new Set();
+  for(const s of slots) if(s.kind==='human'){ if(s.colorId)humanColors.add(s.colorId); }
+  const usedColors=new Set(humanColors);
+  for(const s of slots){
+    if(s.kind!=='cpu')continue;
+    // COLOR: keep current unless null or collides with a human or an earlier slot
+    if(!s.colorId || humanColors.has(s.colorId) || usedColors.has(s.colorId)){
+      const free=PALETTE_IDS.filter(c=>!usedColors.has(c));
+      s.colorId = free.length?pickRand(free):pickRand(PALETTE_IDS);
+    }
+    usedColors.add(s.colorId);
+    // NAME is the fixed character name of that color, tagged -CPU
+    s.name = nameOf(s.colorId)+'-CPU';
+  }
+}
+
+function activeSlots(){ return slots.filter(s=>s.kind!=='open'); }
+
+function validate(){
+  const active=activeSlots(); const errors=[];
+  // in MP host mode with CPU-fill on, empty slots will become CPUs -> count them
+  let tankCount=active.length;
+  if(mpRole==='host'){
+    const fill=document.getElementById('cpuFillChk') && document.getElementById('cpuFillChk').checked;
+    if(fill) tankCount=slots.length;             // all 4 slots become tanks
+  }
+  if(tankCount<2) errors.push('Need at least 2 tanks in the yard.');
+  const humans=slots.filter(s=>s.kind==='human');
+  if(humans.some(h=>!h.ready)) errors.push('All human players must be READY.');
+  if(humans.some(h=>!h.name||!h.name.trim())) errors.push('Every human needs a name.');
+  const names=active.map(s=>(s.name||'').toUpperCase()), colors=active.map(s=>s.colorId);
+  if(!mpRole){  // duplicate enforcement only in local single-player; MP host owns the roster
+    if(new Set(names).size!==names.length) errors.push('Duplicate names — resolve conflict.');
+    if(new Set(colors).size!==colors.length) errors.push('Duplicate colors — resolve conflict.');
+  }
+  return {ok:errors.length===0,errors};
+}
+
+// ======================= LOBBY RENDER =======================
+const slotsEl=document.getElementById('slots');
+const errsEl=document.getElementById('errs');
+const launchBtn=document.getElementById('launchBtn');
+
+function colorTaken(id, exceptIdx){
+  // Only HUMAN players block a color. CPUs always yield (rebalance moves them).
+  return slots.some((s,i)=>i!==exceptIdx && s.kind==='human' && s.colorId===id);
+}
+
+function renderLobby(){
+  if(!mpRole) rebalanceCPUs();   // local only; in a room the host owns the roster
+  slotsEl.innerHTML='';
+  // which slot index is "me"? local single-player => slot 0; in a room => my assigned roster id
+  let mySlotIdx = 0;
+  if(mpRole && mpRoster && mpMyId){ const k=mpRoster.findIndex(r=>r&&r.id===mpMyId); if(k>=0) mySlotIdx=k; }
+  slots.forEach((s,i)=>{
+    const div=document.createElement('div');
+    const isMe = (i===mySlotIdx) && s.kind!=='open';
+    div.className='slot '+(s.kind==='open'?'open ':'')+(isMe?'ready':'');
+    if(s.kind==='open'){
+      div.innerHTML=`<span class="idx">${i+1}</span><span class="nameTag" style="color:var(--dim)">OPEN SLOT</span>
+        <span style="color:var(--dim);font-size:11px;letter-spacing:1px;">waiting for player&hellip;</span>
+        <div class="right"><button class="kindBtn" data-act="toCpu" data-i="${i}">+ ADD CPU</button></div>`;
+    } else {
+      const sw=`<div class="swatch ${(s.kind==='human'||s.kind==='remote')&&s.ready?'locked':''}" data-act="palette" data-i="${i}" style="background:${hexOf(s.colorId)}"></div>`;
+      const nameField = s.kind==='human'
+        ? `<input class="nameInput" data-act="name" data-i="${i}" maxlength="10" placeholder="YOUR NAME" value="${s.name||''}" ${s.ready?'disabled':''}>`
+        : `<span class="nameTag" style="color:${hexOf(s.colorId)}">${s.name||'&hellip;'}</span>`;
+      const badges=[];
+      if(s.isHost) badges.push('<span class="badge host">Host</span>');
+      if(s.kind==='cpu') badges.push('<span class="badge cpu">CPU</span>');
+      else badges.push('<span class="badge human">Human</span>');
+      // personality pill for CPUs (click to cycle)
+      let persPill='';
+      if(s.kind==='cpu'){
+        const pl=(s.personality||'random').toUpperCase();
+        persPill=`<button class="persPill" data-act="pers" data-i="${i}" title="Click to change AI style">${pl}</button>`;
+      }
+      let right='';
+      if(s.kind==='human'){
+        right=`<div class="readyChk ${s.ready?'on':''}" data-act="ready" data-i="${i}">${s.ready?'&check;':''}</div>`;
+      } else if(s.kind==='remote'){
+        right=`<span class="badge human">READY</span>`;   // remote humans are managed by their own client
+      } else {
+        right=`${persPill}<button class="kindBtn" data-act="reroll" data-i="${i}">RE-ROLL</button><button class="miniBtn" data-act="toOpen" data-i="${i}">&times;</button>`;
+      }
+      div.innerHTML=`<span class="idx">${i+1}</span>${sw}${nameField}<div class="badges">${badges.join('')}</div><div class="right">${right}</div>`;
+    }
+    slotsEl.appendChild(div);
+  });
+
+  const v=validate();
+  launchBtn.disabled=!v.ok;
+  errsEl.textContent=v.ok?'':v.errors[0];
+}
+
+slotsEl.addEventListener('click',e=>{
+  const t=e.target.closest('[data-act]');
+  if(t){
+    const i=+t.dataset.i, act=t.dataset.act;
+    if(act==='name'){ return; } // clicking the name field must NOT re-render (kills focus)
+    if(act==='toCpu'){ slots[i]={kind:'cpu',name:'',colorId:null,personality:'random'}; }
+    else if(act==='toOpen'){ slots[i]={kind:'open'}; }
+    else if(act==='ready'){ slots[i].ready=!slots[i].ready; if(slots[i].ready)Sound.tick(); }
+    else if(act==='reroll'){ const keepP=slots[i].personality; slots[i].name=''; slots[i].colorId=null; slots[i].personality=keepP; }
+    else if(act==='pers'){ const order=['random','hunter','ambusher','forager','wanderer']; const cur=order.indexOf(slots[i].personality||'random'); slots[i].personality=order[(cur+1)%order.length]; }
+    else if(act==='palette'){ if(slots[i].kind==='human'&&slots[i].ready)return; togglePalette(i,t); return; }
+    renderLobby(); return;
+  }
+});
+slotsEl.addEventListener('input',e=>{
+  const t=e.target.closest('[data-act="name"]'); if(!t)return;
+  const i=+t.dataset.i;
+  slots[i].name=t.value;  // store raw; CSS uppercases display, validation compares case-insensitively
+  if(mpRole==='client' && i===0) pushMyLobbyEdit();
+  const v=validate(); launchBtn.disabled=!v.ok; errsEl.textContent=v.ok?'':v.errors[0];
+});
+
+// client: name/color is fixed at join time (set on the welcome screen). The
+// authoritative server doesn't accept lobby-time identity edits in this build,
+// so changes here only affect the local preview until the next host/join.
+function pushMyLobbyEdit(){ /* no-op: identity is locked in by the server at join */ }
+
+function togglePalette(i,anchor){
+  document.querySelectorAll('.palette').forEach(p=>p.remove());
+  if(openPalette===i){openPalette=null;return;}
+  openPalette=i;
+  const pal=document.createElement('div'); pal.className='palette';
+  PALETTE.forEach(c=>{
+    const taken=colorTaken(c.id,i);
+    const pc=document.createElement('div');
+    pc.className='pc'+(taken?' taken':''); pc.style.background=c.hex;
+    if(!taken)pc.onclick=()=>{ slots[i].colorId=c.id; openPalette=null; if(mpRole==='client'&&i===0)pushMyLobbyEdit(); renderLobby(); };
+    pal.appendChild(pc);
+  });
+  anchor.appendChild(pal);
+}
+document.addEventListener('click',e=>{ if(!e.target.closest('[data-act="palette"]')&&!e.target.closest('.palette')){document.querySelectorAll('.palette').forEach(p=>p.remove());openPalette=null;} });
+
+// ======================= GAME WIRING =======================
+const lobbyEl=document.getElementById('lobby');
+const gameEl=document.getElementById('game');
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+cv.width=CFG.arenaW;cv.height=CFG.arenaH;
+const hudEl=document.getElementById('hud'),timerEl=document.getElementById('timer');
+const scoreboardEl=document.getElementById('scoreboard'),reloadEl=document.getElementById('reload'),reloadFill=document.getElementById('reloadFill'),reloadWrap=document.getElementById('reloadWrap');
+const powerupsEl=document.getElementById('powerups');
+const resultsEl=document.getElementById('results'),resTitle=document.getElementById('resTitle'),resBet=document.getElementById('resBet'),leaderboardEl=document.getElementById('leaderboard');
+
+let net=null,running=false,particles=[],floaters=[],trail=[],shake=0,terrainCanvas=null,lastTimeShown=99,startFx=null;
+const input={mx:0,my:0,aimX:1,aimY:0,shoot:false};
+const keys={};let mouse={x:CFG.arenaW/2,y:CFG.arenaH/2};
+window.addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;});
+window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
+cv.addEventListener('mousemove',e=>{const r=cv.getBoundingClientRect();mouse.x=(e.clientX-r.left)*(cv.width/r.width);mouse.y=(e.clientY-r.top)*(cv.height/r.height);});
+cv.addEventListener('mousedown',()=>input.shoot=true);
+window.addEventListener('mouseup',()=>input.shoot=false);
+
+launchBtn.onclick=()=>{
+  Sound.init();
+  if(mpRole==='client'){ mpStatus('Only the host can launch.'); return; }
+  if(mpRole==='host'){
+    // server builds the participant list, fills CPUs, assigns ids, and replies
+    // with 'start' (which triggers blast doors + startClientGame for everyone).
+    const fillCpu=document.getElementById('cpuFillChk') && document.getElementById('cpuFillChk').checked;
+    wsSend({ type:'launch', cpuFill:!!fillCpu });
+    return;
+  }
+  // local single-player
+  const participants=activeSlots().map(s=>({kind:s.kind,name:s.name,colorId:s.colorId,isHost:s.isHost,betOn:s.betOn}));
+  runBlastDoors(()=>startGame(participants));
+};
+
+// ---------- MULTIPLAYER ROOMS (host-authoritative shared lobby) ----------
+let mpRole=null, mpCode=null;      // 'host' | 'client' | null(local)
+let mpMyId=null;                   // my player id in the room (e.g. 'P0' host, 'P1'.. clients)
+let mpRoster=null;                 // shared roster (array of {id,name,colorId,kind}), pushed by the server
+const roomStatusEl=document.getElementById('roomStatus');
+const netBadgeEl=document.getElementById('netBadge');
+function mpStatus(msg){ if(roomStatusEl) roomStatusEl.textContent=msg; }
+
+// ----- SCREEN ROUTER: 'welcome' | 'lobby' | 'game' -----
+const welcomeEl=document.getElementById('welcome');
+function showScreen(s){
+  welcomeEl.style.display = s==='welcome' ? 'block':'none';
+  document.getElementById('mpbar').style.display = s==='lobby' ? 'flex':'none';
+  lobbyEl.style.display = s==='lobby' ? 'block':'none';
+  gameEl.style.display = s==='game' ? 'block':'none';
+  if(s==='lobby'){
+    document.getElementById('roomCodeView').textContent=mpCode||'';
+    if(launchBtn) launchBtn.style.display = (mpRole==='client') ? 'none' : '';
+    const cf=document.getElementById('cpuFillRow'); if(cf) cf.style.display=(mpRole==='host')?'flex':'none';
+  }
+}
+
+// ----- WELCOME: identity (random once on load, editable, persisted to my join while in a room) -----
+let myName=randomName(), myColorId=randomColorId();
+function renderWelcomeIdentity(){
+  document.getElementById('wcName').value=myName;
+  document.getElementById('wcSwatch').style.background=hexOf(myColorId);
+}
+document.getElementById('wcName').addEventListener('input',e=>{ myName=e.target.value; });
+document.getElementById('wcReroll').onclick=()=>{ myName=randomName(); myColorId=randomColorId(); renderWelcomeIdentity(); };
+document.getElementById('wcSwatch').onclick=(ev)=>{
+  ev.stopPropagation();
+  const holder=document.getElementById('wcPaletteHolder');
+  if(holder.firstChild){ holder.innerHTML=''; return; }
+  const pal=document.createElement('div'); pal.className='wcPalette'; pal.style.position='absolute'; pal.style.left='50%'; pal.style.transform='translateX(-50%)'; pal.style.top='6px'; pal.style.zIndex='30';
+  pal.style.background='#000'; pal.style.border='1px solid var(--line)'; pal.style.borderRadius='5px'; pal.style.padding='7px';
+  pal.style.display='grid'; pal.style.gridTemplateColumns='repeat(4,1fr)'; pal.style.gap='5px'; pal.style.boxShadow='0 8px 24px rgba(0,0,0,.6)';
+  PALETTE.forEach(c=>{ const pc=document.createElement('div'); pc.style.width='24px'; pc.style.height='24px'; pc.style.borderRadius='4px'; pc.style.cursor='pointer'; pc.style.border='2px solid transparent'; pc.style.background=c.hex;
+    pc.onclick=(e)=>{ e.stopPropagation(); myColorId=c.id; holder.innerHTML=''; renderWelcomeIdentity(); }; pal.appendChild(pc); });
+  holder.appendChild(pal);
+};
+// close the welcome palette when clicking elsewhere
+document.addEventListener('click',e=>{ if(!e.target.closest('#wcSwatch')&&!e.target.closest('.wcPalette')){ const h=document.getElementById('wcPaletteHolder'); if(h)h.innerHTML=''; } });
+function wcStatus(m){ const e=document.getElementById('wcStatus'); if(e)e.textContent=m||''; }
+
+document.getElementById('wcHostBtn').onclick=()=>{ if(!myName.trim())myName=randomName(); hostRoom(); };
+document.getElementById('wcJoinBtn').onclick=()=>{ if(!myName.trim())myName=randomName(); joinRoom(); };
+
+document.getElementById('copyCodeBtn').onclick=()=>{
+  if(!mpCode) return;
+  const done=()=>{ const b=document.getElementById('copyCodeBtn'); const o=b.textContent; b.textContent='COPIED!'; setTimeout(()=>b.textContent=o,1200); };
+  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(mpCode).then(done).catch(done); }
+  else { const t=document.createElement('textarea'); t.value=mpCode; document.body.appendChild(t); t.select(); try{document.execCommand('copy');}catch(e){} t.remove(); done(); }
+};
+document.getElementById('leaveRoomBtn').onclick=()=>{ leaveRoom(); };
+document.getElementById('cpuFillChk').onchange=()=>{ const v=validate(); launchBtn.disabled=!v.ok; errsEl.textContent=v.ok?'':v.errors[0]; };
+
+// teardown helpers
+// ----- shared message wiring used by both host & joiner while in a room -----
+function wireRoomMessages(){
+  // server pushes the full roster every time it changes
+  wsOn('lobby', m=>{
+    if(m.code) mpCode = m.code;
+    mpRoster = m.roster;            // array of {id,name,colorId,kind,ready,isHost}
+    renderMpRoster();
+    const humans = mpRoster.filter(r=>r.kind==='human'||r.kind==='remote').length;
+    if(mpRole==='host') mpStatus(humans+' player(s) in room. Press LAUNCH to start.');
+    else                mpStatus('In room '+mpCode+'. Waiting for host to launch…');
+  });
+  // host pressed launch -> server assigns my final tank id and we all enter together
+  wsOn('start', m=>{
+    mpMyId = m.yourId;
+    runBlastDoors(()=>startClientGame(m.yourId));
+  });
+  wsOn('ended', ()=>{ /* match end handled by snapshot _running=false -> showResults */ });
+  wsOn('roomclosed', ()=>{ wcStatus('Host closed the room.'); leaveRoom(); });
+  wsOn('error', m=>{ wcStatus(m.msg||'Server error'); });
+  wsOn('__close', ()=>{ if(mpRole){ wcStatus('Disconnected from server.'); leaveRoom(); } });
+  wsOn('__error', ()=>{ wcStatus('Connection error — is the server awake?'); });
+}
+function detachRoomListeners(){
+  wsOff('lobby'); wsOff('start'); wsOff('ended'); wsOff('roomclosed'); wsOff('error');
+  wsOff('hosted'); wsOff('joined'); wsOff('__close'); wsOff('__error');
+}
+function leaveRoom(){
+  try{ wsSend({type:'leave'}); }catch(e){}
+  detachRoomListeners();
+  wsClose();
+  mpRole=null; mpCode=null; mpMyId=null; mpRoster=null;
+  netBadgeEl.innerHTML='NET: <b>LOCAL</b> &middot; single-player sim';
+  wcStatus(''); renderWelcomeIdentity(); showScreen('welcome');
+}
+
+// ----- HOST: create room (from welcome screen) -----
+function hostRoom(){
+  Sound.init();
+  mpRole='host';
+  wcStatus('Connecting to server…');
+  wsConnect(()=>{
+    wireRoomMessages();
+    wsOn('hosted', m=>{
+      mpCode = m.code; mpMyId = 'P0';
+      netBadgeEl.innerHTML='NET: <b style="color:#6fdc5a">HOST</b> &middot; room '+mpCode;
+      showScreen('lobby');
+      mpStatus('Share the code. Waiting for players…');
+    });
+    wsSend({ type:'host', name:myName, colorId:myColorId });
+  }, ()=>{ wcStatus('Could not reach server. Try again in a moment.'); mpRole=null; });
+}
+
+// ----- CLIENT: join room (from welcome screen) -----
+function joinRoom(){
+  Sound.init();
+  const code=(document.getElementById('joinCode').value||'').trim().toUpperCase();
+  if(!code){ wcStatus('Enter a room code'); return; }
+  mpRole='client';
+  wcStatus('Connecting to server…');
+  wsConnect(()=>{
+    wireRoomMessages();
+    wsOn('joined', m=>{
+      mpCode = m.code;
+      netBadgeEl.innerHTML='NET: <b style="color:#4d9fff">CLIENT</b> &middot; room '+mpCode;
+      showScreen('lobby');
+      mpStatus('Joined '+mpCode+'. Waiting for host to launch…');
+    });
+    wsSend({ type:'join', code, name:myName, colorId:myColorId });
+  }, ()=>{ wcStatus('Could not reach server. Try again in a moment.'); mpRole=null; });
+}
+
+// render the shared roster into the lobby slots (both host & client see the same)
+function renderMpRoster(){
+  if(!mpRoster) return;
+  // reflect the shared roster onto the local lobby slot UI (host & client see the same)
+  for(let i=0;i<4;i++){
+    const r=mpRoster[i]; if(!r) continue;
+    if(slots[i]){
+      slots[i].name=r.name||''; slots[i].colorId=r.colorId;
+      slots[i].kind=r.kind;                 // 'human' | 'remote' | 'cpu' | 'open'
+      slots[i].ready=true;
+      slots[i].isHost = (r.id==='P0');
+    }
+  }
+  renderLobby();
+}
+
+// ----- game entry (host AND joiners): mirror server state -----
+function startClientGame(myId){
+  net=new WSNet(myId);
+  particles=[];floaters=[];trail=[];shake=0;lastTimeShown=99;locatorWaves=[];stopFireworks();
+  showScreen('game'); resultsEl.classList.remove('show');
+  running=true; clientLoop();
+}
+// client loop: send my input up, draw the mirrored state (terrain rebuilt from snapshot grid)
+let _clientInputAcc=0;
+function clientLoop(){
+  if(!running)return;
+  readInputRaw();
+  // send input every frame (~60/sec): input is tiny (~60 bytes) and this keeps
+  // shooting + aim crisp on the server. Movement is predicted locally regardless.
+  net.sendInput({...input});
+  net.step();
+  if(net.grid && (!terrainCanvas || net._terrainDirty)){ buildTerrain(); net._terrainDirty=false; }
+  drainEvents();
+  ctx.save();
+  if(shake>0){ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);shake*=.85;if(shake<.3)shake=0;}
+  if(net.grid){ drawTerrain();drawSpawnBeacons();drawWalls();drawBeacons();drawPickups();drawTrail();drawBullets();
+    for(const p of net.getPlayers())drawTank(p);
+    drawParticles();drawFloaters();drawLocatorRing();drawStartCountdown(); }
+  ctx.restore();
+  updateHUD();
+  if(!net._running){ running=false; showResults(); return; }
+  requestAnimationFrame(clientLoop);
+}
+
+
+// Blast-door transition: doors slam shut (staccato), clunk, then onShut() runs (starts the
+// game + countdown) WHILE the doors open to reveal the arena. Fast, nostalgic. On top of all.
+// Full cycle: doors slam shut (staccato) -> clunk -> onShut() runs WHILE doors open to reveal.
+function runBlastDoors(onShut){
+  const wrap=document.getElementById('blastdoors');
+  const top=wrap.querySelector('.door-top'), bot=wrap.querySelector('.door-bot');
+  wrap.classList.add('active');
+  top.style.transition='none'; bot.style.transition='none';
+  top.style.transform='translateY(-100%)'; bot.style.transform='translateY(100%)'; // start open
+  requestAnimationFrame(()=>{
+    top.style.transition='transform .27s cubic-bezier(.5,0,.9,.4)';
+    bot.style.transition='transform .27s cubic-bezier(.5,0,.9,.4)';
+    top.style.transform='translateY(0)'; bot.style.transform='translateY(0)';   // close
+    Sound.doorClose();
+  });
+  setTimeout(()=>{
+    Sound.doorClunk();
+    if(onShut) onShut();          // swap content (game/lobby) behind the shut doors
+    requestAnimationFrame(()=>{
+      top.style.transition='transform .47s cubic-bezier(.2,.7,.3,1)';
+      bot.style.transition='transform .47s cubic-bezier(.2,.7,.3,1)';
+      top.style.transform='translateY(-100%)'; bot.style.transform='translateY(100%)'; // open
+      Sound.doorOpen();
+    });
+    setTimeout(()=>wrap.classList.remove('active'), 500);
+  }, 300);
+}
+// Open-only: doors start CLOSED and just slide open (used on first load).
+function openBlastDoors(){
+  const wrap=document.getElementById('blastdoors');
+  const top=wrap.querySelector('.door-top'), bot=wrap.querySelector('.door-bot');
+  wrap.classList.add('active');
+  top.style.transition='none'; bot.style.transition='none';
+  top.style.transform='translateY(0)'; bot.style.transform='translateY(0)'; // start closed
+  requestAnimationFrame(()=>{
+    setTimeout(()=>{
+      top.style.transition='transform .47s cubic-bezier(.2,.7,.3,1)';
+      bot.style.transition='transform .47s cubic-bezier(.2,.7,.3,1)';
+      top.style.transform='translateY(-100%)'; bot.style.transform='translateY(100%)';
+      Sound.doorOpen();
+      setTimeout(()=>wrap.classList.remove('active'), 500);
+    }, 120);
+  });
+}
+document.getElementById('closeBtn').onclick=()=>endToLobby();
+document.getElementById('backBtn').onclick=()=>endToLobby();
+
+function endToLobby(){
+  running=false; if(net){ net._running=false; if(net.shutdown) net.shutdown(); } stopFireworks();
+  // in a multiplayer room, leaving the results goes back to the WELCOME screen
+  if(mpRole){
+    runBlastDoors(()=>{ resultsEl.classList.remove('show'); leaveRoom(); });
+    return;
+  }
+  // local single-player: back to lobby (legacy path; rarely used now)
+  runBlastDoors(()=>{
+    slots.forEach(s=>{ if(s.kind==='human'||s.kind==='cpu') s.ready=true; });
+    resultsEl.classList.remove('show'); showScreen('lobby'); renderLobby();
+  });
+}
+
+function startGame(participants){
+  net=new LocalAdapter(participants);
+  buildTerrain(); particles=[];floaters=[];trail=[];shake=0;lastTimeShown=99;locatorWaves=[];stopFireworks();
+  startFx={n:3,life:1}; Sound.countbeep(); locatorWaves.push({t:0}); // initial "3" + first locator wave
+  showScreen('game'); resultsEl.classList.remove('show');
+  running=true; loop();
+}
+
+function readInputRaw(){
+  let mx=0,my=0;
+  if(keys['w'])my-=1;if(keys['s'])my+=1;if(keys['a'])mx-=1;if(keys['d'])mx+=1;
+  const m=Math.hypot(mx,my);if(m>0){mx/=m;my/=m;}
+  input.mx=mx;input.my=my;
+  const me=net.localId?net.getPlayers().find(p=>p.id===net.localId):null;
+  if(me){const dx=mouse.x-me.x,dy=mouse.y-me.y,d=Math.hypot(dx,dy)||1;input.aimX=dx/d;input.aimY=dy/d;}
+}
+function readInput(){
+  readInputRaw();
+  net.sendInput({...input});
+}
+
+// ---- terrain ----
+function buildTerrain(){
+  terrainCanvas=document.createElement('canvas');terrainCanvas.width=CFG.arenaW;terrainCanvas.height=CFG.arenaH;
+  const t=terrainCanvas.getContext('2d');
+  const g=t.createLinearGradient(0,0,CFG.arenaW,CFG.arenaH);
+  g.addColorStop(0,'#2a2818');g.addColorStop(.5,'#22210f');g.addColorStop(1,'#1c1b10');
+  t.fillStyle=g;t.fillRect(0,0,CFG.arenaW,CFG.arenaH);
+  for(let i=0;i<5000;i++){const x=Math.random()*CFG.arenaW,y=Math.random()*CFG.arenaH;
+    t.fillStyle=Math.random()>.5?`rgba(60,55,30,${Math.random()*.4})`:`rgba(0,0,0,${Math.random()*.3})`;
+    const s=Math.random()*2.5;t.fillRect(x,y,s,s);}
+  for(let i=0;i<40;i++){t.strokeStyle=`rgba(0,0,0,${Math.random()*.12})`;t.lineWidth=Math.random()*6+2;
+    const x=Math.random()*CFG.arenaW,y=Math.random()*CFG.arenaH,a=Math.random()*6.28,len=Math.random()*80+30;
+    t.beginPath();t.moveTo(x,y);t.lineTo(x+Math.cos(a)*len,y+Math.sin(a)*len);t.stroke();}
+}
+function drawTerrain(){ctx.drawImage(terrainCanvas,0,0);}
+
+function drawWalls(){
+  const tile=CFG.tile;
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const v=net.grid[r][c];if(v===0)continue;
+    const x=c*tile,y=r*tile,s=tile;
+    if(v===1){
+      // 2 HP: clean (hp=2) -> broken/cracked (hp=1) -> gone
+      const broken = net.hp ? (net.hp[r][c] <= CFG.brickHP-1) : false; // client has no hp grid -> treat as intact
+      ctx.fillStyle='#7a3b22';ctx.fillRect(x,y,s,s);
+      ctx.strokeStyle='rgba(0,0,0,.45)';ctx.lineWidth=1.5;
+      for(let by=0;by<s;by+=10){ctx.beginPath();ctx.moveTo(x,y+by);ctx.lineTo(x+s,y+by);ctx.stroke();
+        const off=(Math.floor(by/10)%2)*10;
+        for(let bx=off;bx<s;bx+=20){ctx.beginPath();ctx.moveTo(x+bx,y+by);ctx.lineTo(x+bx,y+by+10);ctx.stroke();}}
+      ctx.fillStyle='rgba(255,180,140,.12)';ctx.fillRect(x,y,s,3);
+      if(broken){ // cracked look
+        ctx.fillStyle='rgba(0,0,0,.38)';ctx.fillRect(x,y,s,s);
+        ctx.strokeStyle='rgba(0,0,0,.7)';ctx.lineWidth=2;
+        ctx.beginPath();ctx.moveTo(x+s*.3,y+1);ctx.lineTo(x+s*.5,y+s*.5);ctx.lineTo(x+s*.32,y+s-1);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(x+s*.55,y+s*.5);ctx.lineTo(x+s-1,y+s*.62);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(x+1,y+s*.45);ctx.lineTo(x+s*.3,y+s*.5);ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle='#5a6168';ctx.fillRect(x,y,s,s);
+      ctx.fillStyle='#6e757c';ctx.fillRect(x+3,y+3,s-6,s-6);
+      ctx.strokeStyle='rgba(0,0,0,.5)';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,s-2,s-2);
+      ctx.fillStyle='#3a3f44';[[6,6],[s-6,6],[6,s-6],[s-6,s-6]].forEach(([dx,dy])=>{ctx.beginPath();ctx.arc(x+dx,y+dy,2,0,6.28);ctx.fill();});
+      ctx.fillStyle='rgba(255,255,255,.08)';ctx.fillRect(x+3,y+3,s-6,3);
+    }
+  }
+}
+
+function drawBeacons(){
+  for(const b of net.beacons){
+    const x=b.x, y=b.y, s=CFG.tile;
+    ctx.save();
+    // dark depressed metallic tile (does NOT block; just a marker)
+    ctx.fillStyle='#23262e';ctx.fillRect(x-s/2+3,y-s/2+3,s-6,s-6);
+    ctx.strokeStyle='rgba(120,140,180,.35)';ctx.lineWidth=1.5;ctx.strokeRect(x-s/2+3,y-s/2+3,s-6,s-6);
+    // inner recessed look
+    ctx.fillStyle='#171a20';ctx.fillRect(x-s/2+7,y-s/2+7,s-14,s-14);
+    if(b.state==='counting'){
+      ctx.fillStyle=b.count<=3?'#ff4d3b':'#7c8aa8';ctx.font='14px "Black Ops One"';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(b.count,x,y);
+    } else {
+      // occupied: a faint dot (item sits here, drawn by drawPickups)
+      ctx.fillStyle='rgba(120,140,180,.3)';ctx.beginPath();ctx.arc(x,y,3,0,6.28);ctx.fill();
+    }
+    ctx.restore();ctx.textBaseline='alphabetic';
+  }
+}
+
+// ---- ITEM CAPSULES (ported from the item lab) ----
+// SINGLE SOURCE OF TRUTH for power-up colors (capsule tint, timer bar, pickup particles all use this)
+const PU_COLOR={ steel:'#ffcf3f', speed:'#6fdc5a', rapid:'#ff4d3b', breacher:'#3fe0d8', hull:'#ff79c6', tiny:'#b27bff' };
+function puRGB(type){ const h=PU_COLOR[type]||'#ffffff'; return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]; }
+const ITEM_TINT={ steel:puRGB('steel'), speed:puRGB('speed'), rapid:puRGB('rapid'), breacher:puRGB('breacher'), hull:puRGB('hull'), tiny:puRGB('tiny') };
+function itemBreath(t,phase){
+  const period=4.2, x=((t+phase)%period);
+  if(x>1.1) return 1.0;
+  return 1.0 + Math.sin((x/1.1)*Math.PI)*0.2;
+}
+function itemGlint(t,phase){
+  const period=6.5, x=((t+phase)%period), dur=0.9;
+  if(x>dur) return null;
+  return x/dur;
+}
+function drawItemSphere(ctx,R,outLum,glint,tint){
+  const g=ctx.createRadialGradient(-R*0.35,-R*0.35,R*0.1, 0,0,R*1.05);
+  g.addColorStop(0,'#d8dade');g.addColorStop(0.35,'#9a9ca0');g.addColorStop(0.7,'#54565a');g.addColorStop(1,'#2a2b2e');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,R,0,6.28);ctx.fill();
+  if(tint){ ctx.save();ctx.globalCompositeOperation='overlay';ctx.globalAlpha=0.30;
+    ctx.fillStyle='rgb('+tint[0]+','+tint[1]+','+tint[2]+')';ctx.beginPath();ctx.arc(0,0,R,0,6.28);ctx.fill();ctx.restore(); }
+  ctx.save();ctx.globalAlpha=0.35;
+  const g2=ctx.createRadialGradient(R*0.3,R*0.3,R*0.2, 0,0,R);
+  g2.addColorStop(0,'rgba(0,0,0,0)');g2.addColorStop(1,'rgba(0,0,0,0.6)');
+  ctx.fillStyle=g2;ctx.beginPath();ctx.arc(0,0,R,0,6.28);ctx.fill();ctx.restore();
+  ctx.save();ctx.globalAlpha=0.5;ctx.fillStyle='#fff';
+  ctx.beginPath();ctx.ellipse(-R*0.38,-R*0.4,R*0.18,R*0.12,-0.6,0,6.28);ctx.fill();ctx.restore();
+  if(glint!=null){ ctx.save();ctx.beginPath();ctx.arc(0,0,R,0,6.28);ctx.clip();
+    ctx.translate((glint*2-1)*R*2.4,0);ctx.rotate(-0.785);
+    const bw=R*0.42, lg=ctx.createLinearGradient(-bw,0,bw,0);
+    lg.addColorStop(0,'rgba(255,255,255,0)');lg.addColorStop(0.5,'rgba(255,255,255,0.5)');lg.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=lg;ctx.fillRect(-bw,-R*4,bw*2,R*8);ctx.restore(); }
+  ctx.strokeStyle='rgb('+outLum+','+outLum+','+outLum+')';ctx.lineWidth=2.5;
+  ctx.shadowBlur=7;ctx.shadowColor='rgb('+outLum+','+outLum+','+outLum+')';
+  ctx.beginPath();ctx.arc(0,0,R+1,0,6.28);ctx.stroke();ctx.shadowBlur=0;
+}
+function drawItemIcon(ctx,type,fillLum,iconScale){
+  ctx.save();if(iconScale)ctx.scale(iconScale,iconScale);
+  ctx.fillStyle='rgb('+fillLum+','+fillLum+','+fillLum+')';ctx.strokeStyle='#1a1b1d';ctx.lineJoin='round';ctx.lineCap='round';ctx.lineWidth=1.0;
+  if(type==='steel'){
+    ctx.beginPath();ctx.moveTo(0,-6.2);ctx.lineTo(5.2,-3.2);ctx.lineTo(5.2,1.6);ctx.quadraticCurveTo(5.2,6,0,7.3);
+    ctx.quadraticCurveTo(-5.2,6,-5.2,1.6);ctx.lineTo(-5.2,-3.2);ctx.closePath();ctx.fill();ctx.stroke();
+  } else if(type==='speed'){
+    const w=6.5, topY=-7, midY=-1.5, botY=7, th=3.2;
+    ctx.beginPath();ctx.moveTo(0,topY);ctx.lineTo(w,midY);ctx.lineTo(w-th*0.6,midY+1.2);ctx.lineTo(th*0.5,topY+th*1.5);
+    ctx.lineTo(th*0.5,botY);ctx.lineTo(-th*0.5,botY);ctx.lineTo(-th*0.5,topY+th*1.5);ctx.lineTo(-(w-th*0.6),midY+1.2);ctx.lineTo(-w,midY);
+    ctx.closePath();ctx.fill();ctx.stroke();
+  } else if(type==='rapid'){
+    const pts=[[0,-4.0],[-4.0,3.0],[4.0,3.0]];
+    for(const p of pts){ ctx.beginPath();ctx.arc(p[0],p[1],2.7,0,6.28);ctx.fill();ctx.stroke(); }
+  } else if(type==='hull'){
+    // heart (life): two top lobes + bottom point
+    ctx.beginPath();
+    ctx.moveTo(0,6.5);
+    ctx.bezierCurveTo(-7,1.5,-6.5,-5,-2.6,-5);
+    ctx.bezierCurveTo(-0.8,-5,0,-3.2,0,-2.2);
+    ctx.bezierCurveTo(0,-3.2,0.8,-5,2.6,-5);
+    ctx.bezierCurveTo(6.5,-5,7,1.5,0,6.5);
+    ctx.closePath();ctx.fill();ctx.stroke();
+  } else if(type==='tiny'){
+    // dotted square = original size; a tank shrunk to 50% inside = new size
+    ctx.save();
+    ctx.lineWidth=0.9; ctx.setLineDash([1.6,1.4]);
+    ctx.strokeRect(-7,-7,14,14);
+    ctx.setLineDash([]);
+    ctx.scale(0.5,0.5);
+    ctx.beginPath();ctx.rect(-5.4,-4.5,2.2,9);ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.rect(3.2,-4.5,2.2,9);ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.rect(-4.2,-3.6,8.4,7.2);ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.rect(-1.0,-8.5,2.0,5.5);ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.arc(0,0,2.6,0,6.28);ctx.fill();ctx.stroke();
+    ctx.restore();
+  } else {
+    // breacher: bursting shell
+    for(let a=0;a<6.28;a+=Math.PI/3){
+      const ca=Math.cos(a),sa=Math.sin(a),px=-sa,py=ca,r0=4.6,r1=8.2,w0=1.5,w1=0.6;
+      ctx.beginPath();ctx.moveTo(ca*r0+px*w0,sa*r0+py*w0);ctx.lineTo(ca*r1+px*w1,sa*r1+py*w1);
+      ctx.lineTo(ca*r1-px*w1,sa*r1-py*w1);ctx.lineTo(ca*r0-px*w0,sa*r0-py*w0);ctx.closePath();ctx.fill();ctx.stroke();
+    }
+    ctx.beginPath();ctx.arc(0,0,3.8,0,6.28);ctx.fill();ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawPickups(){
+  const t=performance.now()/1000;
+  for(const k of net.pickups){
+    // stable per-item phases from its sequence id so effects are desynced but consistent
+    const ph=(k._seq||0)*1.7, bph=(k._seq||0)*0.9, gph=(k._seq||0)*2.1;
+    k.bob+=.05;const yy=k.y+Math.sin(k.bob)*3;
+    const blend=(Math.sin(t*1.8+bph)+1)/2;
+    const outLum=Math.round(50+blend*190);
+    const fillLum=235;
+    const sphereB=itemBreath(t,ph), lagRaw=itemBreath(t-0.22,ph), spring=1+(lagRaw-1)*1.5;
+    const iconScale=spring/sphereB;
+    const gl=itemGlint(t,gph);
+    ctx.save();ctx.translate(k.x,yy);ctx.scale(sphereB,sphereB);
+    drawItemSphere(ctx,13,outLum,gl,ITEM_TINT[k.type]);
+    drawItemIcon(ctx,k.type,fillLum,iconScale);
+    ctx.restore();
+  }
+}
+
+function drawFloaters(){
+  for(let i=floaters.length-1;i>=0;i--){
+    const f=floaters[i];
+    f.y-=0.7; f.life-=0.018;
+    if(f.life<=0){floaters.splice(i,1);continue;}
+    ctx.save();ctx.globalAlpha=Math.min(1,f.life*1.5);
+    let col=f.color;
+    if(f.blink){ const b=(Math.sin(performance.now()/90)+1)/2; const lum=Math.round(140+b*115); col='rgb('+lum+','+lum+','+lum+')'; }
+    else if(f.cblink && f.color && f.color[0]==='#'){ // color-coded flicker: color <-> 75% toward white
+      const b=(Math.sin(performance.now()/90)+1)/2;     // 0..1
+      const mix=b*0.75;                                  // up to 75% toward white
+      const r=parseInt(f.color.slice(1,3),16), g=parseInt(f.color.slice(3,5),16), bl=parseInt(f.color.slice(5,7),16);
+      const rr=Math.round(r+(255-r)*mix), gg=Math.round(g+(255-g)*mix), bb=Math.round(bl+(255-bl)*mix);
+      col='rgb('+rr+','+gg+','+bb+')';
+    }
+    ctx.fillStyle=col;ctx.font='11px "Black Ops One"';ctx.textAlign='center';
+    ctx.shadowBlur=8;ctx.shadowColor='#000';
+    ctx.fillText(f.text,f.x,f.y);ctx.restore();
+  }
+}
+
+function darkenHex(hex,f){
+  if(!hex||hex[0]!=='#'||hex.length<7) return hex;
+  const r=parseInt(hex.slice(1,3),16)*f, g=parseInt(hex.slice(3,5),16)*f, b=parseInt(hex.slice(5,7),16)*f;
+  return `rgb(${r|0},${g|0},${b|0})`;
+}
+
+function drawTank(p){
+  const isBet = net.betId===p.id;
+  if(!p.alive){
+    ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.deathAng||0);
+    // black semi-transparent scorch stamp (random rotation per death)
+    ctx.fillStyle='rgba(0,0,0,0.45)';
+    ctx.beginPath();
+    for(let a=0;a<6.28;a+=0.4){ const rr=15+Math.sin(a*3+(p.deathAng||0)*2)*4; const x=Math.cos(a)*rr,y=Math.sin(a)*rr; if(a===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);} 
+    ctx.closePath();ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,0.35)';ctx.beginPath();ctx.arc(0,0,9,0,6.28);ctx.fill();
+    // faint ghost of the tank rect on top
+    ctx.globalAlpha=.18;ctx.strokeStyle=p.color;ctx.lineWidth=2;ctx.strokeRect(-13,-11,26,22);
+    ctx.restore();return;
+  }
+  const color=p.color, t=performance.now()/1000;
+  const fast=p.speedster>0, rapid=p.rapidFire>0, breach=p.breacher>0;
+
+  // SPEED trail: emit fading WHITE ribbon particles behind the tank (long, lingering)
+  if(fast){
+    const sp=Math.hypot(p.vx,p.vy);
+    if(sp>0.5){
+      for(let k=0;k<2;k++){
+        const bx=p.x-p.vx*(1.5+k*1.4), by=p.y-p.vy*(1.5+k*1.4);
+        trail.push({x:bx,y:by,r:8-k*1.5,life:1,color:'#ffffff'});
+      }
+    }
+  }
+
+  ctx.save();ctx.translate(p.x,p.y);
+  if(p.tiny>0) ctx.scale(CFG.tinyScale,CFG.tinyScale); // TinyTank: half size
+  if(p.invuln>0&&Math.floor(p.invuln/4)%2===0)ctx.globalAlpha=.5;
+
+  // bet ring (outermost)
+  if(isBet){ctx.strokeStyle='#ff79c6';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+    ctx.beginPath();ctx.arc(0,0,CFG.tank.radius+12,0,6.28);ctx.stroke();ctx.setLineDash([]);}
+
+  // ---- HULL + TRACKS ----
+  ctx.save();ctx.rotate(p.bodyAng);
+  const tW=fast?36:30, tH=fast?7:6, tOff=fast?16:14;
+  ctx.fillStyle = fast ? '#9aa0a8' : '#5e636b';
+  ctx.strokeStyle='#000'; ctx.lineWidth=1.5;
+  ctx.fillRect(-tW/2,-tOff,tW,tH); ctx.strokeRect(-tW/2,-tOff,tW,tH);
+  ctx.fillRect(-tW/2,tOff-tH,tW,tH); ctx.strokeRect(-tW/2,tOff-tH,tW,tH);
+  if(fast){
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(-tW/2+2,-tOff+tH/2);ctx.lineTo(tW/2-2,-tOff+tH/2);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(-tW/2+2,tOff-tH/2);ctx.lineTo(tW/2-2,tOff-tH/2);ctx.stroke();
+  } else {
+    ctx.strokeStyle='rgba(0,0,0,.5)';ctx.lineWidth=1;
+    for(let i=-tW/2+3;i<tW/2;i+=4){ctx.beginPath();ctx.moveTo(i,-tOff);ctx.lineTo(i,-tOff+tH);ctx.stroke();ctx.beginPath();ctx.moveTo(i,tOff-tH);ctx.lineTo(i,tOff);ctx.stroke();}
+  }
+  // body: color at 75% value, black outline (white flash on taking a non-lethal hit)
+  ctx.fillStyle = p.hitFlash>0 ? '#ffffff' : darkenHex(color,0.85);
+  ctx.strokeStyle='#000'; ctx.lineWidth=2;
+  ctx.fillRect(-13,-9,26,18); ctx.strokeRect(-13,-9,26,18);
+  ctx.restore();
+
+  // ---- CANNON + TURRET ----
+  const ta=Math.atan2(p.aimY,p.aimX);
+  ctx.save();ctx.rotate(ta);
+  if(breach){
+    ctx.fillStyle='#e6e9ec'; ctx.strokeStyle='#000'; ctx.lineWidth=2;
+    ctx.fillRect(0,-7,24,14); ctx.strokeRect(0,-7,24,14);
+  } else {
+    ctx.fillStyle='#7c828a'; ctx.strokeStyle='#000'; ctx.lineWidth=1.5;
+    ctx.fillRect(0,-3.5,22,7); ctx.strokeRect(0,-3.5,22,7);
+  }
+  ctx.strokeStyle='#000'; ctx.lineWidth=2;
+  if(rapid){
+    ctx.fillStyle=color;
+    ctx.beginPath();ctx.moveTo(10,0);ctx.lineTo(-2,-9);ctx.lineTo(2,0);ctx.lineTo(-2,9);ctx.closePath();
+    ctx.fill();ctx.stroke();
+    ctx.fillStyle='#fff';
+    ctx.beginPath();ctx.arc(-8,-4,1.8,0,6.28);ctx.fill();
+    ctx.beginPath();ctx.arc(-8,4,1.8,0,6.28);ctx.fill();
+    ctx.beginPath();ctx.arc(-11,0,1.8,0,6.28);ctx.fill();
+  } else {
+    ctx.fillStyle=color;ctx.beginPath();ctx.arc(0,0,8,0,6.28);ctx.fill();ctx.stroke();
+    ctx.fillStyle='rgba(0,0,0,.4)';ctx.beginPath();ctx.arc(0,0,4,0,6.28);ctx.fill();
+  }
+  ctx.restore();
+  ctx.restore();
+
+  // ---- SHIELD: wavy white ring (pulses, always white) ----
+  if(p.shield>0){
+    ctx.save();ctx.translate(p.x,p.y);
+    ctx.strokeStyle='#ffffff'; ctx.globalAlpha=0.9; ctx.lineWidth=2.5;
+    ctx.shadowBlur=8; ctx.shadowColor='#ffffff';
+    ctx.beginPath();
+    const baseR=CFG.tank.radius+7, pulse=0.6+0.4*Math.sin(t*1.3);
+    for(let a=0;a<=6.30;a+=0.16){
+      const wob=Math.sin(a*5-t*4)*1.7*pulse + Math.sin(a*3+t*2)*0.8;
+      const rr=baseR+wob, x=Math.cos(a)*rr, y=Math.sin(a)*rr;
+      if(a===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    }
+    ctx.closePath();ctx.stroke();ctx.restore();
+  }
+
+  // name + COLOR-CODED life pellets
+  ctx.fillStyle=isBet?'#ff79c6':color;ctx.font='9px "Black Ops One"';ctx.textAlign='center';
+  ctx.fillText(p.name,p.x,p.y-22);
+  for(let i=0;i<CFG.startLives;i++){
+    ctx.fillStyle = i<p.lives ? color : 'rgba(255,255,255,.15)';
+    ctx.fillRect(p.x-10+i*8,p.y+20,5,3);
+  }
+  // TIMED power-up bars: each color-coded, empties as it runs out, stacked under the tank.
+  // [value, maxDuration, color]
+  const bars=[];
+  if(p.rapidFire>0) bars.push([p.rapidFire, CFG.dur.rapid,    PU_COLOR.rapid]);    // red
+  if(p.breacher>0)  bars.push([p.breacher,  CFG.dur.breacher, PU_COLOR.breacher]); // cyan
+  if(p.speedster>0) bars.push([p.speedster, CFG.dur.speed,    PU_COLOR.speed]);    // green
+  if(p.tiny>0)      bars.push([p.tiny,      CFG.dur.tiny,     PU_COLOR.tiny]);     // purple
+  // shield: only show a bar for the PICKUP shield (long), not the brief spawn shield
+  if(p.shield>CFG.startShield) bars.push([p.shield, CFG.dur.shield, PU_COLOR.steel]); // yellow
+  const prad=CFG.tank.radius*(p.tiny>0?CFG.tinyScale:1);
+  bars.forEach((bar,bi)=>{
+    const val=bar[0],max=bar[1],c=bar[2];
+    const frac=Math.max(0,Math.min(1,val/max));
+    const bw=26, by=p.y+prad+11+bi*5;
+    ctx.fillStyle='rgba(0,0,0,.6)';ctx.fillRect(p.x-bw/2,by,bw,3);
+    ctx.fillStyle=c;ctx.fillRect(p.x-bw/2,by,bw*frac,3);
+  });
+}
+
+function drawBullets(){
+  const tt=performance.now()/1000;
+  for(const b of net.bullets){
+    const rad=b.radius||3;
+    const R=b.breach?rad:Math.max(3.5,rad);
+    ctx.save();
+    // motion trail (faint, tinted)
+    ctx.globalAlpha=0.5;ctx.strokeStyle=b.color;ctx.lineWidth=b.breach?5:2.5;ctx.lineCap='round';
+    ctx.shadowBlur=b.breach?20:12;ctx.shadowColor=b.color;
+    ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(b.x-b.vx*1.4,b.y-b.vy*1.4);ctx.stroke();
+    ctx.globalAlpha=1;
+    if(b.breach){
+      // INCANDESCENT orb: hot white center, intense color-tinted glow, pulsing bright ring
+      const pulse=0.5+0.5*Math.sin(tt*14);
+      const g=ctx.createRadialGradient(b.x,b.y,0, b.x,b.y,R*2.6);
+      g.addColorStop(0,'#ffffff');
+      g.addColorStop(0.45,'#ffffff');
+      g.addColorStop(0.7,b.color);
+      g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.shadowBlur=26;ctx.shadowColor=b.color;
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(b.x,b.y,R*2.6,0,6.28);ctx.fill();
+      // pulsing bright ring (white, lightly tinted by glow)
+      ctx.shadowBlur=14;ctx.shadowColor='#ffffff';
+      ctx.globalAlpha=0.6+0.4*pulse;ctx.strokeStyle='#ffffff';ctx.lineWidth=1.6;
+      ctx.beginPath();ctx.arc(b.x,b.y,R*(1.15+0.25*pulse),0,6.28);ctx.stroke();
+      ctx.globalAlpha=1;
+      // hot core
+      ctx.shadowBlur=0;ctx.fillStyle='#ffffff';
+      ctx.beginPath();ctx.arc(b.x,b.y,R*0.8,0,6.28);ctx.fill();
+    } else {
+      // normal: glowing orb, white core fading to owner color
+      const g=ctx.createRadialGradient(b.x,b.y,0, b.x,b.y,R*2.1);
+      g.addColorStop(0,'#ffffff');
+      g.addColorStop(0.35,'#ffffff');
+      g.addColorStop(0.62,b.color);
+      g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.shadowBlur=14;ctx.shadowColor=b.color;
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(b.x,b.y,R*2.1,0,6.28);ctx.fill();
+      ctx.shadowBlur=0;ctx.fillStyle='#ffffff';
+      ctx.beginPath();ctx.arc(b.x,b.y,R*0.62,0,6.28);ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function spawnParticles(x,y,color,n,spd,sz){for(let i=0;i<n;i++){const a=Math.random()*6.28,s=Math.random()*spd;
+  particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,color,sz:Math.random()*(sz||3)+1});}}
+function spawnRing(x,y,color,max){particles.push({ring:true,x,y,r:4,max:max||34,life:1,color});}
+function spawnCollapseRing(x,y,color){particles.push({ring:true,collapse:true,x,y,r:40,max:6,life:1,color});}
+function spawnDebris(x,y,color,n){for(let i=0;i<n;i++){const a=Math.random()*6.28,s=Math.random()*5+1;
+  particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1.3,color,sz:Math.random()*3+2,grav:0.12,spin:Math.random()*0.4-0.2,rot:Math.random()*6.28});}}
+
+function drainEvents(){
+  for(const e of net.events){
+    if(e.t==='shot'){spawnParticles(e.x,e.y,e.breach?'#ffffff':'#ffd98a',e.breach?8:5,3);Sound.shot(e.breach);}
+    else if(e.t==='boom'){const c=e.breach?'#b27bff':'#ffae5b';spawnParticles(e.x,e.y,c,e.breach?14:8,3.5,2.5);spawnRing(e.x,e.y,c,e.breach?28:18);shake=Math.max(shake,e.breach?5:3);}
+    else if(e.t==='spark'){spawnParticles(e.x,e.y,'#cfd6dd',8,3.5,2);Sound.metal();}
+    else if(e.t==='brickhit'){spawnParticles(e.x,e.y,'#c06a3f',10,3,2.5);Sound.brickHit();}
+    else if(e.t==='brickbreak'){spawnDebris(e.x,e.y,'#7a3b22',18);spawnParticles(e.x,e.y,'#c06a3f',16,3,2.5);shake=Math.max(shake,6);Sound.brickBreak();}
+    else if(e.t==='steelshatter'){spawnDebris(e.x,e.y,'#6e757c',22);spawnParticles(e.x,e.y,'#cfd6dd',14,4,2.5);spawnRing(e.x,e.y,'#b27bff',40);shake=Math.max(shake,10);Sound.steelShatter();}
+    else if(e.t==='hit'){spawnParticles(e.x,e.y,e.color,14,4);shake=Math.max(shake,6);Sound.hit();}
+    else if(e.t==='explosion'){ // beefed-up death
+      spawnParticles(e.x,e.y,'#fff',12,9,3);
+      spawnParticles(e.x,e.y,'#ffd98a',30,7,4);
+      spawnParticles(e.x,e.y,'#ff7a3b',34,6,4);
+      spawnParticles(e.x,e.y,e.color,20,5,3);
+      spawnDebris(e.x,e.y,e.color,12);
+      spawnRing(e.x,e.y,'#fff',24);spawnRing(e.x,e.y,'#ffd98a',44);spawnRing(e.x,e.y,e.color,60);
+      floaters.push({text:'-1',x:e.x,y:e.y-10,color:'#fff',life:1,blink:true}); // lost a point
+      shake=Math.max(shake,18);Sound.explosion();}
+    else if(e.t==='spawnscore'){ floaters.push({text:String(e.score),x:e.x,y:e.y-24,color:e.color,life:1.1,cblink:true}); } // current score on (re)spawn
+    else if(e.t==='killscore'){ floaters.push({text:String(e.score),x:e.x,y:e.y-30,color:e.color,life:1.1,cblink:true}); // updated score on a kill
+      if(e.rank){ floaters.push({text:e.rank==='first'?'FIRST!':'TIED!',x:e.x,y:e.y-18,color:e.color,life:1.1,cblink:true}); } }
+    else if(e.t==='spawnblast'){spawnRing(e.x,e.y,e.color,CFG.spawnBlast.radius);spawnRing(e.x,e.y,'#fff',CFG.spawnBlast.radius*0.7);spawnParticles(e.x,e.y,e.color,24,6,3);shake=Math.max(shake,9);Sound.spawnblast();}
+    else if(e.t==='pickup'){const c=PU_COLOR[e.kind]||'#fff';spawnParticles(e.x,e.y,c,18,4.5);spawnRing(e.x,e.y,c);Sound.pickup();
+      const pl=net.getPlayers().find(q=>q.id===e.playerId);
+      if(pl) floaters.push({text:e.label,x:pl.x,y:pl.y-26,color:'#fff',life:1,blink:true});}
+    else if(e.t==='itemspawn'){const c=PU_COLOR[e.kind]||'#fff';spawnCollapseRing(e.x,e.y,'#fff');spawnRing(e.x,e.y,c,20);}
+    else if(e.t==='itemexpire'){spawnParticles(e.x,e.y,'#555',8,2);}
+    else if(e.t==='itemdestroyed'){ floaters.push({text:e.label,x:e.x,y:e.y-20,color:'#fff',life:1,blink:true}); }
+    else if(e.t==='shieldbreak'){
+      // strong, clearly-communicated shatter: bright white flash ring + colored shards + a second expanding ring
+      spawnRing(e.x,e.y,'#ffffff',CFG.tank.radius+10);
+      spawnRing(e.x,e.y,e.color||'#4d9fff',CFG.tank.radius+24);
+      spawnParticles(e.x,e.y,'#ffffff',16,6);
+      spawnParticles(e.x,e.y,e.color||'#4d9fff',22,5);
+      floaters.push({text:'SHIELD DOWN',x:e.x,y:e.y-24,color:'#fff',life:0.8,blink:true});
+      shake=Math.max(shake,9);Sound.shieldBreak();
+    }
+    else if(e.t==='steelbreak'){spawnParticles(e.x,e.y,e.color||'#4d9fff',20,5);shake=Math.max(shake,6);Sound.steelBreak();}
+    else if(e.t==='countbeep'){startFx={n:e.n,life:1};Sound.countbeep();locatorWaves.push({t:0});}
+    else if(e.t==='go'){startFx={n:'GO!',life:1};Sound.go();}
+    else if(e.t==='powerdown'){Sound.powerdown();}
+    else if(e.t==='bulletfizzle'){ spawnParticles(e.x,e.y,'#9a9a8a',5,1.6,2); }
+    else if(e.t==='matchend'){/* win/lose sound handled in showResults */}
+  }
+  net.events.length=0;
+}
+
+function drawTrail(){
+  for(let i=trail.length-1;i>=0;i--){
+    const d=trail[i];
+    d.life-=0.047;          // ~75% of previous duration (was 0.035)
+    if(d.life<=0){trail.splice(i,1);continue;}
+    ctx.save();
+    ctx.globalAlpha=d.life*0.49;  // 75% of previous 0.65 opacity
+    ctx.fillStyle=d.color;
+    ctx.shadowBlur=10;ctx.shadowColor='#ffffff';
+    ctx.beginPath();ctx.arc(d.x,d.y,d.r*d.life,0,6.28);ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawParticles(){
+  for(let i=particles.length-1;i>=0;i--){const p=particles[i];
+    if(p.ring){p.r+=(p.max-p.r)*.18;p.life-=.06;if(p.life<=0){particles.splice(i,1);continue;}
+      ctx.globalAlpha=p.life;ctx.strokeStyle=p.color;ctx.lineWidth=2;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.28);ctx.stroke();ctx.globalAlpha=1;continue;}
+    p.x+=p.vx;p.y+=p.vy;
+    if(p.grav){p.vy+=p.grav;p.vx*=.97;p.life-=.025;p.rot+=p.spin;}
+    else{p.vx*=.9;p.vy*=.9;p.life-=.04;}
+    if(p.life<=0){particles.splice(i,1);continue;}
+    ctx.globalAlpha=Math.min(1,p.life);ctx.fillStyle=p.color;
+    if(p.grav){ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.fillRect(-p.sz/2,-p.sz/2,p.sz,p.sz);ctx.restore();}
+    else ctx.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz);
+    ctx.globalAlpha=1;}
+}
+
+function drawSpawnBeacons(){
+  const t=performance.now()/1000;
+  const blinkOn = Math.sin(t*4)>0;   // center blinks black <-> player color
+  for(const p of net.getPlayers()){
+    const cx=p.spawnX, cy=p.spawnY, R=CFG.tile*1.05;
+    ctx.save();
+    ctx.translate(cx,cy);
+    // outer tech ring
+    ctx.strokeStyle=p.color;ctx.globalAlpha=0.35;ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(0,0,R,0,6.28);ctx.stroke();
+    // dashed mid ring
+    ctx.globalAlpha=0.3;ctx.setLineDash([4,6]);
+    ctx.beginPath();ctx.arc(0,0,R*0.62,0,6.28);ctx.stroke();ctx.setLineDash([]);
+    // blinking center: black <-> player color
+    ctx.globalAlpha=0.9;
+    ctx.fillStyle = blinkOn ? p.color : '#000';
+    ctx.beginPath();ctx.arc(0,0,5,0,6.28);ctx.fill();
+    ctx.strokeStyle=p.color;ctx.lineWidth=1.5;ctx.globalAlpha=0.6;
+    ctx.beginPath();ctx.arc(0,0,5,0,6.28);ctx.stroke();
+    ctx.restore();
+  }
+}
+
+let locatorWaves=[]; // each: {t:0} collapsing wave toward the active tank
+function drawLocatorRing(){
+  const activeId = net.localId || net.betId;
+  if(!activeId){ locatorWaves=[]; return; }
+  const tank = net.getPlayers().find(p=>p.id===activeId);
+  if(!tank){ return; }
+  const maxR = Math.hypot(CFG.arenaW, CFG.arenaH) * 1.1;
+  for(let i=locatorWaves.length-1;i>=0;i--){
+    const w=locatorWaves[i];
+    w.t += 0.02;                          // collapses in ~50 frames = one countdown number, so the "1" wave lands exactly on GO
+    if(w.t>=1){ locatorWaves.splice(i,1); continue; }
+    const ease = 1 - Math.pow(1-w.t, 2.2);
+    const r = maxR * (1 - ease);
+    ctx.save();
+    ctx.translate(tank.x, tank.y);
+    for(let k=0;k<4;k++){
+      const rr = r + k*26*(1-ease);
+      if(rr<=0) continue;
+      ctx.globalAlpha = (1-w.t) * (0.5 - k*0.11);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3 - k*0.5;
+      ctx.shadowBlur = 12; ctx.shadowColor='#fff';
+      ctx.beginPath(); ctx.arc(0,0,rr,0,6.28); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function drawStartCountdown(){
+  if(!startFx)return;
+  startFx.life-=0.022;
+  if(startFx.life<=0){startFx=null;return;}
+  const isGo = startFx.n==='GO!';
+  // scale shrinks as it appears (starts big, settles); GO! pops bigger
+  const t=startFx.life;
+  const scale = isGo ? (1.4 - t*0.4) : (0.6 + t*1.6);
+  ctx.save();
+  ctx.globalAlpha=Math.min(1,t*1.4);
+  ctx.translate(CFG.arenaW/2, CFG.arenaH/2);
+  ctx.scale(scale,scale);
+  ctx.font='64px "Black Ops One"';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillStyle=isGo?'#6fdc5a':'#e9e6d8';
+  ctx.shadowBlur=24;ctx.shadowColor=isGo?'#6fdc5a':'#000';
+  ctx.fillText(startFx.n,0,0);
+  ctx.restore();ctx.textBaseline='alphabetic';
+}
+
+function updateHUD(){
+  const me=net.localId?net.getPlayers().find(p=>p.id===net.localId):null;
+  if(me){   // it's MY tank (host=human, client=remote) — show my stats either way
+    reloadWrap.classList.remove('hidden');
+    hudEl.innerHTML=`<div class="stat"><label>HULL</label><b>${me.lives}</b></div><div class="stat"><label>KILLS</label><b>${me.kills}</b></div>`;
+    let fullCd;
+    if(me.rapidFire>0 && me.breacher>0) fullCd=24;
+    else if(me.rapidFire>0) fullCd=12;
+    else if(me.breacher>0) fullCd=48;
+    else fullCd=CFG.fireCooldown;
+    const pct=1-(me.cooldown/fullCd);
+    reloadFill.style.width=(Math.max(0,Math.min(1,pct))*100)+'%';reloadEl.className='reload '+(me.cooldown<=0?'':'charging');
+    const pw=[];if(me.shield>0)pw.push(['SHIELD',me.color]);if(me.rapidFire>0)pw.push(['RAPID','#ff4d3b']);if(me.speedster>0)pw.push(['SPEED','#ffcf3f']);if(me.breacher>0)pw.push(['BREACHER','#b27bff']);
+    powerupsEl.innerHTML=pw.map(([t,c])=>`<span class="pwr" style="color:${c};border-color:${c}">${t}</span>`).join('');
+  } else { // my tank not in the snapshot yet (e.g. between death/respawn or first frames)
+    hudEl.innerHTML=`<div class="stat"><label>HULL</label><b>—</b></div><div class="stat"><label>KILLS</label><b>—</b></div>`;
+    reloadWrap.classList.add('hidden');
+  }
+  // timer
+  const tl=Math.max(0,net.timeLeft);
+  if(tl!==lastTimeShown){ if(tl<=5&&tl>0)Sound.countdownBeep(tl<=3); lastTimeShown=tl; }
+  const mm=Math.floor(tl/60),ss=tl%60;
+  timerEl.textContent=`${mm}:${ss<10?'0':''}${ss}`;
+  timerEl.className='timer'+(tl<=10?' warn':'');
+  // scoreboard
+  scoreboardEl.innerHTML='';
+  [...net.getPlayers()].sort((a,b)=>b.kills-a.kills).forEach(p=>{
+    const row=document.createElement('div');row.className='row'+(net.betId===p.id?' bet':'');
+    row.innerHTML=`<span class="nm">${p.name}</span><span class="kc" style="color:${p.color}">${p.kills}</span><span class="dot" style="background:${p.color}"></span>`;
+    scoreboardEl.appendChild(row);
+  });
+}
+
+// ---- FIREWORKS (results screen, only when the human wins) ----
+let fwRunning=false, fwParticles=[], fwCanvas=null, fwCtx=null, fwLast=0, fwSpawnT=0;
+const FW_COLORS=['#ffcf3f','#6fdc5a','#ff4d3b','#3fe0d8','#ff79c6','#b27bff','#ffffff'];
+function fwBurst(x,y){
+  const col=FW_COLORS[Math.floor(Math.random()*FW_COLORS.length)];
+  const n=26+Math.floor(Math.random()*16);
+  for(let i=0;i<n;i++){
+    const a=(i/n)*6.28+Math.random()*0.2, sp=1.5+Math.random()*3.2;
+    fwParticles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,col,sz:1.5+Math.random()*1.5});
+  }
+}
+function fwFrame(ts){
+  if(!fwRunning)return;
+  if(!fwCanvas){fwCanvas=document.getElementById('fireworks');if(fwCanvas){fwCtx=fwCanvas.getContext('2d');}}
+  if(fwCanvas){
+    const r=fwCanvas.getBoundingClientRect();
+    if(fwCanvas.width!==r.width||fwCanvas.height!==r.height){fwCanvas.width=r.width;fwCanvas.height=r.height;}
+    const W=fwCanvas.width,H=fwCanvas.height;
+    fwCtx.clearRect(0,0,W,H);
+    // occasionally launch a new burst
+    fwSpawnT-=1; if(fwSpawnT<=0){ fwBurst(W*(0.2+Math.random()*0.6), H*(0.2+Math.random()*0.45)); fwSpawnT=18+Math.random()*22; }
+    for(let i=fwParticles.length-1;i>=0;i--){
+      const p=fwParticles[i];
+      p.vy+=0.035; p.vx*=0.985; p.vy*=0.985; p.x+=p.vx; p.y+=p.vy; p.life-=0.018;
+      if(p.life<=0){fwParticles.splice(i,1);continue;}
+      fwCtx.globalAlpha=Math.max(0,p.life);
+      fwCtx.fillStyle=p.col; fwCtx.shadowBlur=8; fwCtx.shadowColor=p.col;
+      fwCtx.beginPath();fwCtx.arc(p.x,p.y,p.sz*p.life,0,6.28);fwCtx.fill();
+    }
+    fwCtx.globalAlpha=1;fwCtx.shadowBlur=0;
+  }
+  requestAnimationFrame(fwFrame);
+}
+function startFireworks(){ if(fwRunning)return; fwRunning=true; fwParticles=[]; fwSpawnT=0;
+  // a few immediate bursts so the win is unmistakable
+  setTimeout(()=>{ if(fwCanvas){const W=fwCanvas.width||600,H=fwCanvas.height||340; fwBurst(W*0.3,H*0.35);fwBurst(W*0.7,H*0.3);fwBurst(W*0.5,H*0.45);} },30);
+  requestAnimationFrame(fwFrame); }
+function stopFireworks(){ fwRunning=false; fwParticles=[]; if(fwCtx&&fwCanvas)fwCtx.clearRect(0,0,fwCanvas.width,fwCanvas.height); }
+
+function showResults(){
+  resultsEl.classList.add('show');
+  const ranked=net.ranking||[...net.getPlayers()].sort((a,b)=>b.kills-a.kills);
+  const top=ranked[0];
+  const meHuman=net.localId?net.getPlayers().find(p=>p.id===net.localId):null;
+  // winner name color-coded with their tank color, injected as a span
+  const winSpan=`<span style="color:${top.color}">${top.name}</span>`;
+  // DRAW: 2+ tanks share the top score
+  const topScore=top.kills;
+  const tiedTop=ranked.filter(p=>p.kills===topScore);
+  const isDraw=tiedTop.length>1;
+
+  if(isDraw){
+    resTitle.textContent='STALEMATE!';
+    resTitle.style.color='var(--ink)';
+    const names=tiedTop.map(p=>p.name).join(' & ');
+    resBet.innerHTML=`<span style="color:var(--ink)">${names} tied at ${topScore} ${topScore===1?'kill':'kills'}.</span>`;
+    Sound.end();
+  } else if(meHuman && meHuman.kind==='human'){
+    const won=top.id===meHuman.id;
+    resTitle.textContent=won?'YARD SECURED':'YARD LOST';
+    resTitle.style.color=won?meHuman.color:'var(--ink)';
+    resBet.innerHTML=won?'You topped the board.':`${winSpan} took it with ${top.kills} kills.`;
+    if(won){ Sound.fanfare(); startFireworks(); } else { Sound.end(); }
+  } else if(net.betId){
+    const bet=ranked.find(p=>p.id===net.betId);
+    const place=ranked.indexOf(bet)+1;
+    const won=place===1;
+    resTitle.textContent=won?'BET PAID OFF':'YARD LOST';
+    resTitle.style.color=won?bet.color:'var(--ink)';
+    resBet.innerHTML=won?`<span style="color:${bet.color}">${bet.name}</span> won — good eye.`:`You bet on <span style="color:${bet.color}">${bet.name}</span> (#${place}). ${winSpan} took it.`;
+    if(won){ Sound.fanfare(); startFireworks(); } else { Sound.end(); }
+  } else {
+    resTitle.textContent='YARD LOST';resBet.innerHTML=`${winSpan} wins with ${top.kills} kills.`;
+    Sound.end();
+  }
+  leaderboardEl.innerHTML='';
+  ranked.forEach((p,i)=>{
+    const row=document.createElement('div');
+    row.className='lb-row'+(net.betId===p.id?' betrow':'');
+    // only a SINGLE clear winner gets the color-coded border (never on a draw)
+    if(i===0 && !isDraw){
+      row.style.borderColor=p.color;
+      row.style.boxShadow=`0 0 14px ${p.color}44`;
+    }
+    const rankColored = (i===0 && !isDraw);
+    row.innerHTML=`<span class="lb-rank"${rankColored?` style="color:${p.color}"`:''}>${i+1}</span><span class="lb-dot" style="background:${p.color}"></span><span class="lb-name" style="color:${p.color}">${p.name}</span><span class="lb-kills">${p.kills}</span>`;
+    leaderboardEl.appendChild(row);
+  });
+}
+
+// Fixed-timestep simulation decoupled from rendering. setInterval keeps ticking even when the
+// tab is backgrounded (rAF can fully pause), and we accumulate REAL elapsed time so the sim
+// advances the right number of steps regardless of frame rate or focus.
+const SIM_DT=1000/60;          // target 60 steps/sec
+let _simAcc=0, _simLast=0, _simTimer=null;
+function startSimLoop(){
+  stopSimLoop();
+  _simLast=performance.now(); _simAcc=0;
+  _simTimer=setInterval(()=>{
+    if(!running){ stopSimLoop(); return; }
+    const now=performance.now(); let dt=now-_simLast; _simLast=now;
+    if(dt>250) dt=250;          // clamp huge gaps (tab was hidden a long time) to avoid a spiral
+    _simAcc+=dt;
+    let steps=0;
+    while(_simAcc>=SIM_DT && steps<8){   // catch up, capped so we never freeze
+      readInput(); net.step(); _simAcc-=SIM_DT; steps++;
+      if(!net._running) break;
+    }
+    drainEvents();
+    if(!net._running){ running=false; stopSimLoop(); showResults(); }
+  }, SIM_DT);
+}
+function stopSimLoop(){ if(_simTimer){ clearInterval(_simTimer); _simTimer=null; } }
+
+function loop(){
+  startSimLoop();   // host: timed simulation
+  render();         // rAF: drawing only
+}
+function render(){
+  if(!running)return;
+  ctx.save();
+  if(shake>0){ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);shake*=.85;if(shake<.3)shake=0;}
+  drawTerrain();drawSpawnBeacons();drawWalls();drawBeacons();drawPickups();drawTrail();drawBullets();
+  for(const p of net.getPlayers())drawTank(p);
+  drawParticles();drawFloaters();drawLocatorRing();drawStartCountdown();ctx.restore();
+  updateHUD();
+  if(!running) return;
+  requestAnimationFrame(render);
+}
+
+// initial
+// button click/hover sounds (delegated)
+document.addEventListener('pointerdown',e=>{ if(e.target.closest('.btn,.kindBtn,.miniBtn,.persPill,#wcReroll,.closeBtn')){ Sound.init&&Sound.init(); Sound.uiClick&&Sound.uiClick(); } });
+document.addEventListener('mouseover',e=>{ const b=e.target.closest('.btn,.kindBtn'); if(b && b!==window._lastHoverBtn){ window._lastHoverBtn=b; Sound.uiHover&&Sound.uiHover(); } });
+// version line on the welcome screen (client always; server once we've seen a snapshot)
+let _serverVersion = null;
+function renderVersionLine(){
+  const e=document.getElementById('wcVersion'); if(!e) return;
+  e.textContent = 'CLIENT '+CLIENT_VERSION + (_serverVersion ? '  ·  SERVER '+_serverVersion : '');
+}
+renderWelcomeIdentity();
+renderVersionLine();
+showScreen('welcome');
+openBlastDoors();  // page loads with doors shut, then they slide open onto the welcome screen
+</script>
+</body>
+</html>

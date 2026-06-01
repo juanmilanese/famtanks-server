@@ -8,13 +8,18 @@ const { WebSocketServer } = require('ws');
 const sim = require('./core.js');
 const { CFG, PALETTE, LocalAdapter } = sim;
 
+// Bump this by hand whenever you change the server. Lets you confirm at a glance
+// (in the boot logs AND at /health) that Render is running your latest push.
+const SERVER_VERSION = 'v5 — 60Hz snapshots + input sequencing';
+const BOOT_TIME = new Date().toISOString();
+
 const PORT = process.env.PORT || 8080;
 
 // ---- tiny HTTP server (Render needs an open port + healthcheck) ----
 const server = http.createServer((req, res) => {
   if (req.url === '/health' || req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('FAM Tanks server OK — rooms: ' + rooms.size);
+    res.end('FAM Tanks server OK\nversion: ' + SERVER_VERSION + '\nbooted: ' + BOOT_TIME + '\nrooms: ' + rooms.size);
   } else {
     res.writeHead(404); res.end();
   }
@@ -32,7 +37,7 @@ function makeCode(){
 }
 
 const SIM_DT = 1000/60;          // 60 simulation steps per second
-const SNAP_EVERY = 2;            // publish a snapshot every 2 steps -> 30/sec
+const SNAP_EVERY = 1;            // publish a snapshot every step -> 60/sec
 
 class Room {
   constructor(code){
@@ -143,7 +148,7 @@ class Room {
   publish(){
     const s = this.adapter;
     const snap = {
-      type:'snap', st:Date.now(),
+      type:'snap', st:Date.now(), sv:SERVER_VERSION,
       live:s.live, timeLeft:s.timeLeft, running:s._running, startCountdown:s.startCountdown,
       players: s.players.map(p=>({ id:p.id, n:p.name, c:p.color, ci:p.colorId, k:p.kills,
         x:Math.round(p.x), y:Math.round(p.y), vx:+p.vx.toFixed(2), vy:+p.vy.toFixed(2),
@@ -274,4 +279,10 @@ setInterval(()=>{
   }
 }, 30000);
 
-server.listen(PORT, ()=>{ console.log('FAM Tanks server listening on :'+PORT); });
+server.listen(PORT, ()=>{
+  console.log('==================================================');
+  console.log('FAM Tanks server listening on :'+PORT);
+  console.log('VERSION:', SERVER_VERSION);
+  console.log('BOOTED :', BOOT_TIME);
+  console.log('==================================================');
+});
