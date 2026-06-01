@@ -1041,12 +1041,18 @@ class LocalAdapter {
 //  - One persistent socket per tab handles welcome -> lobby -> match -> results.
 // ============================================================================
 
-const SERVER_URL = 'wss://famtanks-server.onrender.com';
+// When the page is served by our own server (https/http), the WebSocket lives at
+// the same origin — derive it automatically so we never hardcode the host again.
+// Fallback (opening the file locally via file://) uses the Render URL explicitly.
+const FALLBACK_WS = 'wss://famtanks-server.onrender.com';
+const SERVER_URL = (location.protocol === 'https:' || location.protocol === 'http:')
+  ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host
+  : FALLBACK_WS;
 
 // Bump by hand when the client changes. Shown on the welcome screen so a tester
 // can read it off and we know which build they're running. The server reports its
 // own version separately (in snapshots as `sv`), so the welcome can show both.
-const CLIENT_VERSION = 'v5';
+const CLIENT_VERSION = 'v6';
 
 // ---- the single shared socket + a tiny message router -------------------
 let _ws = null;

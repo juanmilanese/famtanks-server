@@ -4,25 +4,44 @@
 // input and receive full-frame snapshots. Low latency vs Firebase.
 // ============================================================
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const { WebSocketServer } = require('ws');
 const sim = require('./core.js');
 const { CFG, PALETTE, LocalAdapter } = sim;
 
 // Bump this by hand whenever you change the server. Lets you confirm at a glance
 // (in the boot logs AND at /health) that Render is running your latest push.
-const SERVER_VERSION = 'v5 — 60Hz snapshots + input sequencing';
+const SERVER_VERSION = 'v6 — serves the client + auto WS URL';
 const BOOT_TIME = new Date().toISOString();
 
 const PORT = process.env.PORT || 8080;
 
-// ---- tiny HTTP server (Render needs an open port + healthcheck) ----
+// the game client lives next to this file in the repo
+const CLIENT_FILE = path.join(__dirname, 'FAMTanks.html');
+
+// ---- HTTP server: serves the game at / and a health probe at /health ----
 const server = http.createServer((req, res) => {
-  if (req.url === '/health' || req.url === '/') {
+  const url = (req.url || '/').split('?')[0];
+  if (url === '/health') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('FAM Tanks server OK\nversion: ' + SERVER_VERSION + '\nbooted: ' + BOOT_TIME + '\nrooms: ' + rooms.size);
-  } else {
-    res.writeHead(404); res.end();
+    return;
   }
+  if (url === '/' || url === '/index.html' || url === '/FAMTanks.html') {
+    fs.readFile(CLIENT_FILE, (err, data) => {
+      if (err) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Client not found on server. Did you push FAMTanks.html to the repo?');
+        return;
+      }
+      // no-cache so players always get the freshest build after a deploy
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+      res.end(data);
+    });
+    return;
+  }
+  res.writeHead(404); res.end();
 });
 const wss = new WebSocketServer({ server });
 
