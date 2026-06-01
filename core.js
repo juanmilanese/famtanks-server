@@ -821,4 +821,4 @@ class LocalAdapter {
 }
 
 // export for headless test
-if (typeof module!=='undefined') module.exports={CFG,PALETTE,NAME_POOL,COLS,ROWS,SPAWN_TILES,generateMap,validateReachability,LocalAdapter,shuffle,spawnPx,computeItemTiles};
+if (typeof module!=='undefined') module.exports={CFG,PALETTE,NAME_POOL,COLS,ROWS,SPAWN_TILES,SIM_HZ,generateMap,validateReachability,LocalAdapter,shuffle,spawnPx,computeItemTiles};

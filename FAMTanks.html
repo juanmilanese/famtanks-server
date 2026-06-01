@@ -1065,7 +1065,7 @@ const SERVER_URL = (location.protocol === 'https:' || location.protocol === 'htt
 // Bump by hand when the client changes. Shown on the welcome screen so a tester
 // can read it off and we know which build they're running. The server reports its
 // own version separately (in snapshots as `sv`), so the welcome can show both.
-const CLIENT_VERSION = 'v13';
+const CLIENT_VERSION = 'v15';
 
 // ---- the single shared socket + a tiny message router -------------------
 let _ws = null;
@@ -1225,7 +1225,7 @@ class WSNet {
     // It recomputes from live NetStats each snapshot and eases in, so it tracks
     // each player's real connection instead of being tuned by hand.
     this.JITTER_SIGMA = 2;           // how many jitter-widths of safety cushion
-    this.SNAP_INTERVAL = 1000/30;    // server snapshot period (matches server SNAP rate)
+    this.SNAP_INTERVAL = 1000/SIM_HZ; // server snapshot period (single source: core's SIM_HZ)
     this.MIN_DELAY = 40;             // floor: never render newer than this (needs 2 snaps)
     this.MAX_DELAY = 320;            // ceiling: cap staleness on a terrible connection
     this.INTERP_DELAY = 100;         // current value, eased toward the computed target
@@ -1345,11 +1345,13 @@ class WSNet {
     ny=Math.max(rad,Math.min(CFG.arenaH-rad,ny));
     return {x:nx,y:ny,vx,vy};
   }
-  // advance the local prediction by one frame using the freshest input
-  _predictStep(){
+  // advance the local prediction by one step using the given input (the same one
+  // pushed to _pending), so prediction and the server's replay use identical steps
+  _predictStep(inp){
     const me=this._serverMe;
     if(!this._pred || !me || !me.alive) return;
-    const r=this._applyMove(this._pred.x,this._pred.y,this._lastInput,me);
+    const i = inp || this._lastInput;
+    const r=this._applyMove(this._pred.x,this._pred.y,i,me);
     this._pred.x=r.x; this._pred.y=r.y; this._predVX=r.vx; this._predVY=r.vy;
   }
 
@@ -1411,11 +1413,15 @@ class WSNet {
     const input={ mx:i.mx, my:i.my, aimX:+i.aimX.toFixed(2), aimY:+i.aimY.toFixed(2), shoot:!!i.shoot, seq };
     this._pending.push({seq, input});
     if(this._pending.length>120) this._pending.shift();   // safety cap (~2s)
+    // advance the local prediction by exactly one step for THIS input, so each
+    // pending input maps to one predicted step and the server's replay matches.
+    this._predictStep(input);
     wsSend({ type:'input', input });
   }
 
   step(){
-    this._predictStep();
+    // no prediction here — that happens once per sent input (see sendInput). This
+    // just refreshes the interpolated view of everyone else and drains events.
     const view=this._interpolated();
     this._players=view.players; this._bullets=view.bullets;
     this._pickups=view.pickups; this._beacons=view.beacons;
@@ -1855,15 +1861,25 @@ function startClientGame(myId){
   running=true; clientLoop();
 }
 // client loop: send my input up, draw the mirrored state (terrain rebuilt from snapshot grid)
-let _clientInputAcc=0;
+let _predAcc = 0, _lastPredT = 0;
 function clientLoop(){
   if(!running)return;
   readInputRaw();
-  // predict locally every frame; send to server ~30/sec. _setLocalInput keeps the
-  // prediction fed each frame without flooding the socket.
-  if(++_clientInputAcc>=2){ _clientInputAcc=0; net.sendInput({...input}); }
-  else { net._setLocalInput({...input}); }
-  net.step();
+  // Drive prediction + input at the SERVER's sim rate (30Hz), not the render rate.
+  // The server applies one input per sim step; if we predicted/sent at 60Hz the
+  // server would drop half and the replay would desync (caused the rubber-band on
+  // release). Locking client input to 30Hz makes it 1:1 with the server: every
+  // predicted step has a matching input the server actually processes.
+  const now = performance.now();
+  if(!_lastPredT) _lastPredT = now;
+  _predAcc += now - _lastPredT; _lastPredT = now;
+  if(_predAcc > 200) _predAcc = 200;            // don't spiral after a stall
+  const STEP = 1000/SIM_HZ;                       // sim period — single source: core's SIM_HZ
+  while(_predAcc >= STEP){
+    net.sendInput({...input});                  // send + advance prediction one step
+    _predAcc -= STEP;
+  }
+  net.step();                                    // refresh interpolated view + events
   if(net.grid && (!terrainCanvas || net._terrainDirty)){ buildTerrain(); net._terrainDirty=false; }
   drainEvents();
   ctx.save();
@@ -2568,7 +2584,8 @@ function showResults(){
     const names=tiedTop.map(p=>p.name).join(' & ');
     resBet.innerHTML=`<span style="color:var(--ink)">${names} tied at ${topScore} ${topScore===1?'kill':'kills'}.</span>`;
     Sound.end();
-  } else if(meHuman && meHuman.kind==='human'){
+  } else if(meHuman){
+    // in multiplayer every tank decodes as 'remote'; "me" is whoever matches localId
     const won=top.id===meHuman.id;
     resTitle.textContent=won?'YARD SECURED':'YARD LOST';
     resTitle.style.color=won?meHuman.color:'var(--ink)';

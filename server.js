@@ -8,11 +8,11 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const sim = require('./core.js');
-const { CFG, PALETTE, LocalAdapter } = sim;
+const { CFG, PALETTE, LocalAdapter, SIM_HZ } = sim;
 
 // Bump this by hand whenever you change the server. Lets you confirm at a glance
 // (in the boot logs AND at /health) that Render is running your latest push.
-const SERVER_VERSION = 'v9 — 30Hz + net diag (ping)';
+const SERVER_VERSION = 'v15 — unified SIM_HZ';
 const BOOT_TIME = new Date().toISOString();
 
 const PORT = process.env.PORT || 8080;
@@ -55,7 +55,7 @@ function makeCode(){
   return c;
 }
 
-const SIM_DT = 1000/30;          // 30 simulation steps per second (sustainable on Free 0.1 CPU)
+const SIM_DT = 1000/SIM_HZ;      // sim step period — single source: core's SIM_HZ
 const SNAP_EVERY = 1;            // publish a snapshot every step -> 30/sec
 
 class Room {
